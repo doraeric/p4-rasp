@@ -1,0 +1,3 @@
+[submodule "third_party/onos"]
+	path = third_party/onos
+	url = https://github.com/opennetworkinglab/onos.git
