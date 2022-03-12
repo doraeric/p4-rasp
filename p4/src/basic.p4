@@ -27,6 +27,7 @@
 #include "include/checksums.p4"
 #include "include/packet_io.p4"
 #include "include/table0.p4"
+#include "include/next.p4"
 #include "include/host_meter_table.p4"
 #include "include/wcmp.p4"
 
@@ -42,7 +43,8 @@ control ingress(inout headers_t hdr,
         port_counters_ingress.apply(hdr, standard_metadata);
         port_meters_ingress.apply(hdr, standard_metadata);
         packetio_ingress.apply(hdr, standard_metadata);
-        table0_control.apply(hdr, local_metadata, standard_metadata);
+        // table0_control.apply(hdr, local_metadata, standard_metadata);
+        next.apply(hdr, local_metadata, standard_metadata);
         host_meter_control.apply(hdr, local_metadata, standard_metadata);
         wcmp_control.apply(hdr, local_metadata, standard_metadata);
      }

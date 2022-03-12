@@ -1,0 +1,15 @@
+## arp hack
+route add default gw 10.0.1.10 dev eth0
+arp -i eth0 -s 10.0.1.10 08:00:00:00:01:00
+
+h1 route add default gw 10.0.1.10 dev h1-eth0
+h1 arp -i h1-eth0 -s 10.0.1.10 08:00:00:00:01:00
+h2 route add default gw 10.0.2.20 dev h2-eth0
+h2 arp -i h2-eth0 -s 10.0.2.20 08:00:00:00:02:00
+
+h1 route add default gw 10.0.1.10 dev h1-eth0
+h1 arp -i h1-eth0 -s 10.0.1.10 08:00:00:00:01:00
+h1 arp -i h1-eth0 -s 10.0.2.2 08:00:00:00:01:00
+h2 route add default gw 10.0.2.20 dev h2-eth0
+h2 arp -i h2-eth0 -s 10.0.2.20 08:00:00:00:02:00
+h2 arp -i h2-eth0 -s 10.0.1.1 08:00:00:00:02:00
