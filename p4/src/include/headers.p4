@@ -69,6 +69,10 @@ header tcp_t {
     bit<16> urgent_ptr;
 }
 
+header tcp_options_t {
+    varbit<320> options;
+}
+
 header udp_t {
     bit<16> src_port;
     bit<16> dst_port;
@@ -76,5 +80,10 @@ header udp_t {
     bit<16> checksum;
 }
 const bit<8> UDP_HEADER_LEN = 8;
+
+error {
+  noAppLayerData,
+  TcpDataOffsetTooSmall
+}
 
 #endif

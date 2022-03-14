@@ -23,12 +23,16 @@ struct headers_t {
     ipv4_t ipv4;
     tcp_t tcp;
     udp_t udp;
+    tcp_options_t tcp_options;
 }
 
 struct local_metadata_t {
     bit<16>       l4_src_port;
     bit<16>       l4_dst_port;
     next_hop_id_t next_hop_id;
+    bit<16>       app_len;
+    bit<1> flag_http_req_get;
+    bit<1> flag_http_res;
 }
 
 #endif
