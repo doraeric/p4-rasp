@@ -24,8 +24,10 @@
 #define IPV4_IHL_MIN 4w5
 #define MAX_PORTS 511
 
-const bit<32> TYPE_HTTP_REQ_GET = 0x47455420; //GET
-const bit<32> TYPE_HTTP_RES = 0x48545450; //HTTP
+const bit<32> TYPE_HTTP_REQ_GET = 0x47455420; // "GET "
+const bit<32> TYPE_HTTP_REQ_POST = 0x504f5354; // "POST"
+const bit<32> TYPE_HTTP_RES = 0x48545450; // "HTTP"
+const bit<16> TYPE_HTTP_CRLF = 0x0d0a;
 
 #ifndef _BOOL
 #define _BOOL bool

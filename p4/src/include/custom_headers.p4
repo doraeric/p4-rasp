@@ -24,15 +24,21 @@ struct headers_t {
     tcp_t tcp;
     udp_t udp;
     tcp_options_t tcp_options;
+    char_header_t[4096] http_buffer;
 }
 
 struct local_metadata_t {
     bit<16>       l4_src_port;
     bit<16>       l4_dst_port;
     next_hop_id_t next_hop_id;
+    bool          update_tcp_checksum;
     bit<16>       app_len;
     bit<1> flag_http_req_get;
+    bit<1> flag_http_req_post;
     bit<1> flag_http_res;
+    bit<16> http_body_len;
+    bit<16> tcp_len;
+    bit<32> http_header_content_length;
 }
 
 #endif

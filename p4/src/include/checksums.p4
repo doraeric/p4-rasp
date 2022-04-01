@@ -47,6 +47,32 @@ control compute_checksum_control(inout headers_t hdr,
             hdr.ipv4.hdr_checksum,
             HashAlgorithm.csum16
         );
+        // manual tcp checksum calculation
+        // https://www.securitynik.com/2015/08/calculating-udp-checksum-with-taste-of_3.html
+        update_checksum(
+            hdr.tcp.isValid() && local_metadata.update_tcp_checksum,
+            {
+                hdr.ipv4.src_addr,
+                hdr.ipv4.dst_addr,
+                // align to 2 bytes
+                8w0,
+                hdr.ipv4.protocol,
+                local_metadata.tcp_len,
+                hdr.tcp.src_port,
+                hdr.tcp.dst_port,
+                hdr.tcp.seq_no,
+                hdr.tcp.ack_no,
+                hdr.tcp.data_offset,
+                hdr.tcp.res,
+                hdr.tcp.ecn,
+                hdr.tcp.ctrl,
+                hdr.tcp.window,
+                hdr.tcp.urgent_ptr,
+                hdr.tcp_options
+            },
+            hdr.tcp.checksum,
+            HashAlgorithm.csum16
+        );
 
         // Need to recompute for the cloned packet.
         //TODO: https://github.com/p4lang/p4app/issues/43#issuecomment-378061934

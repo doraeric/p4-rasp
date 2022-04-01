@@ -81,6 +81,10 @@ header udp_t {
 }
 const bit<8> UDP_HEADER_LEN = 8;
 
+header char_header_t {
+    bit<8> char;
+}
+
 error {
   noAppLayerData,
   TcpDataOffsetTooSmall

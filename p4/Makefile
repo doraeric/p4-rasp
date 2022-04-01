@@ -3,12 +3,15 @@ SHELL=/bin/bash
 UID := $(shell id -u)
 GID := $(shell id -g)
 PWD := $(shell pwd)
+# DOCKER expands to podman or docker, prefer podman if available
+DOCKER := $(if $(shell which podman 2>/dev/null),podman,docker)
+is_docker := $(filter docker,$(DOCKER))
 
-P4C=docker run --rm \
-   -u ${UID}:${GID} \
+P4C=$(DOCKER) run --rm \
+	$(if $(is_docker),-u ${UID}:${GID},) \
    -v "${PWD}:/cwd" \
    -w /cwd \
-   opennetworking/p4c:stable \
+   doraeric/p4c \
    p4c-bm2-ss
 
 P4FLAGS=--arch v1model
