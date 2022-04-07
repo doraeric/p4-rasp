@@ -20,6 +20,7 @@ def build(self):
     h1.cmd('route add default gw 10.0.1.10 dev h1-eth0')
     h1.cmd('arp -i h1-eth0 -s 10.0.1.10 08:00:00:00:01:00')
     print('Starting apache. It takes some time...')
+    h1.cmd('echo "ServerName 127.0.0.1" >> /etc/apache2/apache2.conf')
     h1.cmd('service apache2 start')
     h2.cmd('route add default gw 10.0.2.20 dev h2-eth0')
     h2.cmd('arp -i h2-eth0 -s 10.0.2.20 08:00:00:00:02:00')
