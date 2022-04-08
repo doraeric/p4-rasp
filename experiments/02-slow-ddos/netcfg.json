@@ -1,0 +1,48 @@
+{
+  "devices": {
+    "device:s1": {
+      "basic": {
+        "p4rt_port": 50001
+      },
+      "segmentrouting": {
+        "routerMac": "00:00:00:00:01:00",
+        "routerIpv4": "10.0.1.10/24"
+      }
+    },
+    "device:s2": {
+      "basic": {
+        "p4rt_port": 50002
+      },
+      "segmentrouting": {
+        "routerMac": "00:00:00:00:01:00",
+        "routerIpv4": "10.0.2.20/24"
+      }
+    }
+  },
+  "links": {
+    "device:s1/1-host:h1/0": {},
+    "device:s1/2-device:s2/1": {},
+    "device:s2/2-host:h2/0": {},
+    "device:s2/3-host:h3/0": {}
+  },
+  "hosts": {
+    "00:00:00:00:00:01/None": {
+      "basic": {
+        "name": "h1",
+        "ips": [ "10.0.1.1/24" ]
+      }
+    },
+    "00:00:00:00:00:02/None": {
+      "basic": {
+        "name": "h2",
+        "ips": [ "10.0.2.2/24" ]
+      }
+    },
+    "00:00:00:00:00:03/None": {
+      "basic": {
+        "name": "h3",
+        "ips": [ "10.0.2.3/24" ]
+      }
+    }
+  }
+}
