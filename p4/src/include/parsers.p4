@@ -32,6 +32,7 @@ parser parser_impl(
         local_metadata.flag_http_req_get = 0;
         local_metadata.flag_http_req_post = 0;
         local_metadata.flag_http_res = 0;
+        local_metadata.bad_http_flag = false;
         transition select(standard_metadata.ingress_port) {
             CPU_PORT: parse_packet_out;
             default: parse_ethernet;

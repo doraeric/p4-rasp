@@ -14,7 +14,7 @@ P4C=$(DOCKER) run --rm \
    doraeric/p4c \
    p4c-bm2-ss
 
-P4FLAGS=--arch v1model
+P4FLAGS=--arch v1model -DTARGET_BMV2
 
 .PHONY: all env
 

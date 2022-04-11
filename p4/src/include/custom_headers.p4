@@ -31,14 +31,19 @@ struct local_metadata_t {
     bit<16>       l4_src_port;
     bit<16>       l4_dst_port;
     next_hop_id_t next_hop_id;
+    @field_list(1)
     bool          update_tcp_checksum;
+    @field_list(1)
     bit<16>       app_len;
     bit<1> flag_http_req_get;
     bit<1> flag_http_req_post;
     bit<1> flag_http_res;
     bit<16> http_body_len;
+    @field_list(1)
     bit<16> tcp_len;
     bit<32> http_header_content_length;
+    @field_list(1)
+    bool bad_http_flag;
 }
 
 #endif

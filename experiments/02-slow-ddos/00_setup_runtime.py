@@ -52,4 +52,9 @@ te.action['dst_addr'] = '00:00:00:00:00:03'
 te.action["port"] = "3"
 te.insert()
 
+for i in range(1, 4):
+    clone_entry = sh.CloneSessionEntry(session_id=i)
+    clone_entry.add(egress_port=i)
+    clone_entry.insert()
+
 sh.teardown()

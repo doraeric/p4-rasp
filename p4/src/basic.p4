@@ -64,6 +64,7 @@ control egress(inout headers_t hdr,
         port_counters_egress.apply(hdr, standard_metadata);
         port_meters_egress.apply(hdr, standard_metadata);
         packetio_egress.apply(hdr, standard_metadata);
+        http_egress.apply(hdr, local_metadata, standard_metadata);
     }
 }
 
