@@ -38,6 +38,19 @@ header ethernet_t {
 }
 const bit<8> ETH_HEADER_LEN = 14;
 
+// https://csie.nqu.edu.tw/smallko/sdn/p4_rtp_h264.htm
+header arp_t {
+    bit<16> hw_type;
+    bit<16> protocol;
+    bit<8>  hlen;
+    bit<8>  plen;
+    bit<16> opcode;
+    bit<48> hw_src_addr;
+    bit<32> proto_src_addr;
+    bit<48> hw_dst_addr;
+    bit<32> proto_dst_addr;
+}
+
 header ipv4_t {
     bit<4>  version;
     bit<4>  ihl;

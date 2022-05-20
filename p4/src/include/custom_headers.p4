@@ -20,6 +20,7 @@ struct headers_t {
     packet_out_header_t packet_out;
     packet_in_header_t packet_in;
     ethernet_t ethernet;
+    arp_t arp;
     ipv4_t ipv4;
     tcp_t tcp;
     udp_t udp;

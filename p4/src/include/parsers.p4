@@ -48,8 +48,14 @@ parser parser_impl(
         packet.extract(hdr.ethernet);
         transition select(hdr.ethernet.ether_type) {
             ETH_TYPE_IPV4: parse_ipv4;
+            ETH_TYPE_ARP: parse_arp;
             default: accept;
         }
+    }
+
+    state parse_arp {
+        packet.extract(hdr.arp);
+        transition accept;
     }
 
     state parse_ipv4 {
@@ -248,6 +254,7 @@ control deparser(packet_out packet, in headers_t hdr) {
     apply {
         packet.emit(hdr.packet_in);
         packet.emit(hdr.ethernet);
+        packet.emit(hdr.arp);
         packet.emit(hdr.ipv4);
         packet.emit(hdr.tcp);
         packet.emit(hdr.tcp_options);

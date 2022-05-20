@@ -9,6 +9,31 @@ control next(
         inout local_metadata_t local_metadata,
         inout standard_metadata_t standard_metadata) {
 
+    action arp_reply(mac_t target_addr) {
+        hdr.ethernet.dst_addr = hdr.ethernet.src_addr;
+        hdr.ethernet.src_addr = target_addr;
+        hdr.arp.opcode = 2;
+        hdr.arp.hw_dst_addr = hdr.arp.hw_src_addr;
+        hdr.arp.hw_src_addr = target_addr;
+        bit<32> tmp = hdr.arp.proto_dst_addr;
+        hdr.arp.proto_dst_addr = hdr.arp.proto_src_addr;
+        hdr.arp.proto_src_addr = tmp;
+        standard_metadata.egress_spec = standard_metadata.ingress_port;
+    }
+
+    table arp_table {
+        key = {
+            hdr.arp.opcode: exact;
+            hdr.arp.proto_dst_addr: exact;
+        }
+        actions = {
+            arp_reply;
+            NoAction;
+        }
+        size = 256;
+        default_action = NoAction();
+    }
+
     action drop() {
         mark_to_drop(standard_metadata);
     }
@@ -34,6 +59,9 @@ control next(
     }
 
     apply {
+        if (hdr.arp.isValid()) {
+            arp_table.apply();
+        }
         if (hdr.ipv4.isValid()) {
             ipv4_lpm.apply();
         }

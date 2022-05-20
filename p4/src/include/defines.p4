@@ -18,6 +18,7 @@
 #define __DEFINES__
 
 #define ETH_TYPE_IPV4 0x0800
+#define ETH_TYPE_ARP  0x0806
 #define IP_PROTO_TCP 8w6
 #define IP_PROTO_UDP 8w17
 #define IP_VERSION_4 4w4
