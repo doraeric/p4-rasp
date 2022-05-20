@@ -14,16 +14,36 @@ sh.setup(
     election_id=(0, 1), # (high, low)
     config=sh.FwdPipeConfig(P4INFO, P4BIN),
 )
-te = sh.TableEntry('ingress.next.ipv4_lpm')(action='ingress.next.ipv4_forward')
+
+# lan 10.0.1.0/24
+# lpm /32 if no match -> /24
+te = sh.TableEntry('ingress.next.ipv4_lpm')(action='ingress.next.drop')
 te.match["hdr.ipv4.dst_addr"] = "10.0.1.0/24"
+te.insert()
+
+te = sh.TableEntry('ingress.next.ipv4_lpm')(action='ingress.next.ipv4_forward')
+te.match["hdr.ipv4.dst_addr"] = "10.0.1.1/32"
 te.action['dst_addr'] = '00:00:00:00:00:01'
 te.action["port"] = "1"
 te.insert()
 
+# lan 10.0.2.0/24
 te = sh.TableEntry('ingress.next.ipv4_lpm')(action='ingress.next.ipv4_forward')
 te.match["hdr.ipv4.dst_addr"] = "10.0.2.0/24"
 te.action['dst_addr'] = '08:00:00:00:02:00'
 te.action["port"] = "2"
+te.insert()
+
+te = sh.TableEntry('ingress.next.arp_table')(action='ingress.next.arp_reply')
+te.match["hdr.arp.opcode"] = "1"
+te.match["hdr.arp.proto_dst_addr"] = "10.0.1.10"
+te.action['target_addr'] = '00:00:00:00:01:00'
+te.insert()
+
+# wan default gateway
+te = sh.TableEntry('ingress.next.ipv4_lpm')(action='ingress.next.ipv4_forward')
+te.action['dst_addr'] = '00:01:00:00:00:01'
+te.action["port"] = "3"
 te.insert()
 
 sh.teardown()

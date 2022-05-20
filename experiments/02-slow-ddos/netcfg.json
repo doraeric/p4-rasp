@@ -1,12 +1,24 @@
 {
+  "ports": {
+    "device:s1/3": {
+      "interfaces": [{
+        "name": "vmnet3",
+        "gw_mac": "00:50:56:00:fe:fe"
+      }],
+      "default_gateway": true
+    },
+    "device:s2/1": {
+      "default_gateway": true
+    }
+  },
   "devices": {
     "device:s1": {
       "basic": {
         "p4rt_port": 50001
       },
       "segmentrouting": {
-        "routerMac": "00:00:00:00:01:00",
-        "routerIpv4": "10.0.1.10/24"
+        "routerMac": "00:00:00:00:01:fe",
+        "routerIpv4": "10.0.1.254/24"
       }
     },
     "device:s2": {
@@ -14,8 +26,8 @@
         "p4rt_port": 50002
       },
       "segmentrouting": {
-        "routerMac": "00:00:00:00:01:00",
-        "routerIpv4": "10.0.2.20/24"
+        "routerMac": "00:00:00:00:02:fe",
+        "routerIpv4": "10.0.2.254/24"
       }
     }
   },
