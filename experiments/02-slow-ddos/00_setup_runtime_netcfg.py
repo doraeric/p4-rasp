@@ -1,27 +1,38 @@
 #!/usr/bin/env python3
+import argparse
+from dataclasses import dataclass
 import json
 import logging
 import os
 from pathlib import Path
+import readline
 
 import p4runtime_sh.shell as sh
 
 from gen_full_netcfg import set_default_net_config
+from utils import p4sh_helper
 
 logging.basicConfig(
         format='%(asctime)s.%(msecs)03d: %(process)d: %(levelname).1s/%(name)s: %(filename)s:%(lineno)d: %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S',
         level=logging.INFO)
 
-net_config = json.load(Path(__file__, '..', "netcfg.json").resolve().open())
-set_default_net_config(net_config)
-
+@dataclass
+class AppContext:
+    net_config: dict
+_app_context = AppContext(None)
 P4INFO = os.getenv('P4INFO', '../../p4/build/p4info.txt')
 P4BIN = os.getenv('P4BIN', '../../p4/build/bmv2.json')
-print(f'P4INFO={Path(P4INFO).resolve()}')
-print(f'P4BIN={Path(P4BIN).resolve()}')
 
-for switch, switch_info in net_config['devices_by_name'].items():
+def setup_all_switches() -> None:
+    net_config = _app_context.net_config
+    for switch in net_config['devices_by_name'].keys():
+        setup_one_switch(switch)
+        sh.teardown()
+
+def setup_one_switch(switch: str) -> None:
+    net_config = _app_context.net_config
+    switch_info = net_config['devices_by_name'][switch]
     sh.setup(
         device_id=1,
         grpc_addr=f'localhost:5000{switch[-1]}',
@@ -84,4 +95,62 @@ for switch, switch_info in net_config['devices_by_name'].items():
         te.action["port"] = port
         te.insert()
         break
+    # clone packet to port
+    for i in list(range(1, 4)) + [255]:
+        clone_entry = sh.CloneSessionEntry(session_id=i)
+        clone_entry.add(egress_port=i)
+        clone_entry.insert()
+
+def cmd_one(args):
+    """Setup one switch and sniff.
+
+    Args:
+        args.switch: Switch name. Both `-s 1` and `-s s1` are acceptable.
+    """
+    switch = args.switch
+    if not switch.startswith('s'):
+        switch = 's' + switch
+    setup_one_switch(switch)
+    if args.listen:
+        # Change default gateway to controller
+        te = sh.TableEntry('ingress.next.ipv4_lpm')(action='ingress.next.ipv4_forward')
+        te.action['dst_addr'] = '08:ff:ff:ff:ff:ff'
+        te.action["port"] = '255'
+        te.modify()
+        # Listening
+        print('Listening on controller for switch "{}"'.format(switch))
+        packet_in = p4sh_helper.PacketIn(sh.client)
+        @packet_in.on_packet_in
+        def packet_in_handler(packet):
+            print(packet)
+        packet_in.recv_bg()
+        while True:
+            try:
+                cmd = input('> ').lower().strip()
+                if cmd == 'exit':
+                    break
+            except:
+                break
+        packet_in.stop()
     sh.teardown()
+
+def main():
+    pser = argparse.ArgumentParser()
+    # pser.add_argument('mode', choices=['all', 'one'], default='all', help='Set rules for all switch or one switch')
+    subparsers = pser.add_subparsers(required=True, help='Setup rules for all switches or one switch')
+    pser_all = subparsers.add_parser('all')
+    pser_all.set_defaults(func=lambda args: setup_all_switches())
+    pser_one = subparsers.add_parser('one')
+    pser_one.add_argument('-s', '--switch', required=True, help='The switch name in mininet')
+    pser_one.add_argument('-l', '--listen', action='store_true', help='Listen on controller for packet in')
+    pser_one.set_defaults(func=cmd_one)
+    args = pser.parse_args()
+    print(f'P4INFO={Path(P4INFO).resolve()}')
+    print(f'P4BIN={Path(P4BIN).resolve()}')
+    net_config = json.load(Path(__file__, '..', "netcfg.json").resolve().open())
+    set_default_net_config(net_config)
+    _app_context.net_config = net_config
+    args.func(args)
+
+if __name__ == '__main__':
+    main()
