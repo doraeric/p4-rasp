@@ -45,12 +45,17 @@ control next(
         hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
     }
 
+    action forward_to_cpu() {
+        standard_metadata.egress_spec = CPU_PORT;
+    }
+
     table ipv4_lpm {
         key = {
             hdr.ipv4.dst_addr: lpm;
         }
         actions = {
             ipv4_forward;
+            forward_to_cpu;
             drop;
             NoAction;
         }

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 from dataclasses import dataclass
+from hexdump import hexdump
 import json
 import logging
 import os
@@ -113,16 +114,17 @@ def cmd_one(args):
     setup_one_switch(switch)
     if args.listen:
         # Change default gateway to controller
-        te = sh.TableEntry('ingress.next.ipv4_lpm')(action='ingress.next.ipv4_forward')
-        te.action['dst_addr'] = '08:ff:ff:ff:ff:ff'
-        te.action["port"] = '255'
+        te = sh.TableEntry('ingress.next.ipv4_lpm')(action='ingress.next.forward_to_cpu')
         te.modify()
         # Listening
         print('Listening on controller for switch "{}"'.format(switch))
         packet_in = p4sh_helper.PacketIn(sh.client)
         @packet_in.on_packet_in
         def packet_in_handler(packet):
-            print(packet)
+            print('PacketIn.payload')
+            hexdump(packet.payload)
+            ingress_port = int.from_bytes(packet.metadata[0].value, 'big')
+            print(f'PacketIn.metadata[0]: ingress_port={ingress_port}')
         packet_in.recv_bg()
         while True:
             try:
