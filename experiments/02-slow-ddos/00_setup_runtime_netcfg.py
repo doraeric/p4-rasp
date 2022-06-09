@@ -79,6 +79,7 @@ def setup_one_switch(switch: str) -> None:
             te.action["port"] = str(link['from']['port'])
             te.insert()
     # default gateway, interface or link
+    set_gw = False
     for port_info in net_config['ports_by_device'].get(switch, {}).values():
         if not port_info['default_gateway']: continue
         port = port_info['port']
@@ -95,7 +96,14 @@ def setup_one_switch(switch: str) -> None:
         te.action['dst_addr'] = dst_addr
         te.action["port"] = port
         te.insert()
+        set_gw = True
         break
+    if not set_gw:
+        # insert no action as default table entry for consistent behaviour
+        logging.info('default gateway')
+        te = sh.TableEntry('ingress.next.ipv4_lpm')(action='NoAction')
+        te.insert()
+        set_gw = True
     # clone packet to port
     for i in list(range(1, 4)) + [255]:
         clone_entry = sh.CloneSessionEntry(session_id=i)
