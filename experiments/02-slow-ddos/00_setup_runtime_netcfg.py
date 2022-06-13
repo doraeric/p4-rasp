@@ -126,14 +126,14 @@ def cmd_one(args):
         te.modify()
         # Listening
         print('Listening on controller for switch "{}"'.format(switch))
-        packet_in = p4sh_helper.PacketIn(sh.client)
-        @packet_in.on_packet_in
+        stream_client = p4sh_helper.StreamClient(sh.client)
+        @stream_client.on('packet')
         def packet_in_handler(packet):
             print('PacketIn.payload')
             hexdump(packet.payload)
             ingress_port = int.from_bytes(packet.metadata[0].value, 'big')
             print(f'PacketIn.metadata[0]: ingress_port={ingress_port}')
-        packet_in.recv_bg()
+        stream_client.recv_bg()
         while True:
             try:
                 cmd = input('> ').lower().strip()
@@ -141,7 +141,7 @@ def cmd_one(args):
                     break
             except:
                 break
-        packet_in.stop()
+        stream_client.stop()
     sh.teardown()
 
 def main():
