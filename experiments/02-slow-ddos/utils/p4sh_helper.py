@@ -7,29 +7,31 @@ import threading
 from threading import Thread
 from typing import Literal
 
-import google
 from google.protobuf import text_format
 from p4.config.v1 import p4info_pb2
 from p4.v1 import p4runtime_pb2
-import p4runtime_sh.shell as sh
 from p4runtime_sh.shell import P4Objects
 from p4runtime_sh.context import P4Type
 from p4runtime_sh.p4runtime import P4RuntimeClient
 
-_entity_fields = {
-    i.message_type.name: i.name for i in p4runtime_pb2.Entity.DESCRIPTOR.fields
-}
 
 def _get_preamble_types() -> dict[str, str]:
     d = p4info_pb2.P4Info.DESCRIPTOR
     types = {}
     for f in d.fields:
-        if f.label != f.LABEL_REPEATED: continue
+        if f.label != f.LABEL_REPEATED:
+            continue
         if not any(i.name == "preamble" for i in f.message_type.fields):
             continue
         types[f.message_type.name] = f.name
     return types
+
+
+_entity_fields = {
+    i.message_type.name: i.name for i in p4runtime_pb2.Entity.DESCRIPTOR.fields
+}
 _preamble_types = _get_preamble_types()
+
 
 class P4Info:
     @classmethod
@@ -45,7 +47,8 @@ class P4Info:
             self.preamble_ids[ftype] = {}
             self.preamble_names[ftype] = {}
             repeated = getattr(pb, fname, None)
-            if repeated is None: continue
+            if repeated is None:
+                continue
             for p4info_field in repeated:
                 preamble = p4info_field.preamble
                 self.preamble_ids[ftype][preamble.name] = preamble.id
@@ -57,6 +60,7 @@ class P4Info:
 
     def get_digest_name(self, digest_id: int) -> str:
         return self.preamble_names['Digest'].get(digest_id)
+
 
 class UpdateEntity:
     def as_entity(self) -> p4runtime_pb2.Entity:
@@ -88,6 +92,7 @@ class UpdateEntity:
         getattr(update.entity, field_name).CopyFrom(pb)
         return update
 
+
 @dataclass
 class DigestEntry(UpdateEntity):
     name: str = property(attrgetter("_name"))
@@ -106,13 +111,13 @@ class DigestEntry(UpdateEntity):
         for key, value in kwargs.items():
             setattr(self, key, value)
         if name is not None and digest_id is not None:
-            raise ValueError('Setting both arguments `name` and `digest_id` '
-                    'is not allowed')
+            raise ValueError(
+                'Setting both arguments `name` and `digest_id` is not allowed')
         if name is None and digest_id is None:
             raise ValueError('Missing argument `name` or `digest_id`')
         if not isinstance(name, (str, int)):
-            raise TypeError('First argument `name` should be either str or '
-                    'int as id')
+            raise TypeError(
+                'First argument `name` should be either str or int as id')
         if isinstance(name, int):
             digest_id = name
             name = None
@@ -135,6 +140,7 @@ class DigestEntry(UpdateEntity):
         pb.config.max_list_size = self.max_list_size
         pb.config.ack_timeout_ns = self.ack_timeout_ns
         return pb
+
 
 class StreamClient:
     """Modified PacketIn from p4runtime_sh.shell"""
@@ -178,8 +184,10 @@ class StreamClient:
     on_digest = on_digest_list
 
     def get_callback(self, msg_type):
-        if msg_type == 'packet': return self.packet_in_callback
-        if msg_type == 'digest': return self.digest_list_callback
+        if msg_type == 'packet':
+            return self.packet_in_callback
+        if msg_type == 'digest':
+            return self.digest_list_callback
         return None
 
     def recv_bg(self):
@@ -187,7 +195,7 @@ class StreamClient:
 
         Stop by either `p4runtime_sh.shell.teardown()` or `self.stop()`
         """
-        def _packet_in_recv_func(msg_type: str):
+        def _stream_handler(msg_type: str):
             """
             Args:
                 msg_type: "arbitration" | "packet" | "digest" | "unknown"
@@ -205,9 +213,9 @@ class StreamClient:
                 except queue.Empty:
                     continue
 
-        self.recv_packet_t = Thread(target=_packet_in_recv_func, args=('packet',))
+        self.recv_packet_t = Thread(target=_stream_handler, args=('packet',))
         self.recv_packet_t.start()
-        self.recv_digest_t = Thread(target=_packet_in_recv_func, args=('digest',))
+        self.recv_digest_t = Thread(target=_stream_handler, args=('digest',))
         self.recv_digest_t.start()
 
     def stop(self):
