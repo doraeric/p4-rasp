@@ -59,6 +59,13 @@ class P4Info:
         return self.preamble_names['Digest'].get(digest_id)
 
 class UpdateEntity:
+    def as_entity(self) -> p4runtime_pb2.Entity:
+        pb = self.pb
+        field_name = _entity_fields[type(pb).__name__]
+        entity = p4runtime_pb2.Entity()
+        getattr(entity, field_name).CopyFrom(pb)
+        return entity
+
     def as_update(self, method='insert') -> p4runtime_pb2.Update:
         """Convert to p4.v1.Update protobuf message.
 
