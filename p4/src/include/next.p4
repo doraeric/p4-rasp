@@ -4,6 +4,11 @@
 #include "headers.p4"
 #include "defines.p4"
 
+struct timestamp_digest_t {
+    bit<48> ingress;
+    bit<32> ipv4;
+}
+
 control next(
         inout headers_t hdr,
         inout local_metadata_t local_metadata,
@@ -46,6 +51,7 @@ control next(
     }
 
     action forward_to_cpu() {
+        digest<timestamp_digest_t>(1, {standard_metadata.ingress_global_timestamp, hdr.ipv4.src_addr});
         standard_metadata.egress_spec = CPU_PORT;
     }
 
