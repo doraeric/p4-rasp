@@ -25,7 +25,7 @@ struct headers_t {
     tcp_t tcp;
     udp_t udp;
     tcp_options_t tcp_options;
-    char_header_t[4096] http_buffer;
+    char_header_t[1024] http_buffer;
 }
 
 struct local_metadata_t {
