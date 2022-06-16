@@ -127,6 +127,18 @@ def setup_one_switch(switch: str) -> None:
         clone_entry.insert()
 
 
+def handle_digest_timestamp(packet):
+    members = packet.data[0].struct.members
+    ts = int.from_bytes(members[0].bitstring, 'big')
+    ip = int.from_bytes(members[1].bitstring, 'big')
+    print(f'ingress_global_timestamp = {ts} us, {ts/1000000} s')
+    print(f'ipv4 = {ip>>24&0xff}.{ip>>16&0xff}.{ip>>8&0xff}.{ip&0xff}')
+
+
+def handle_digest_debug(packet):
+    pass
+
+
 def cmd_one(args):
     """Setup one switch and sniff.
 
@@ -134,17 +146,23 @@ def cmd_one(args):
         args.switch: Switch name. Both `-s 1` and `-s s1` are acceptable.
     """
     switch = args.switch
-    if not switch.startswith('s'):
-        switch = 's' + switch
+    switch = 's' + switch if not switch.startswith('s') else switch
     setup_one_switch(switch)
     if args.listen:
         # Change default gateway to controller
-        te = sh.TableEntry('ingress.next.ipv4_lpm')(
-            action='ingress.next.forward_to_cpu')
-        te.modify()
+        # te = sh.TableEntry('ingress.next.ipv4_lpm')(
+        #     action='ingress.next.forward_to_cpu')
+        # te.modify()
+
+        # Insert digest
         p4i = p4sh_helper.P4Info.read_txt(P4INFO)
         update = p4i.DigestEntry('timestamp_digest_t').as_update()
         sh.client.write_update(update)
+        try:
+            update = p4i.DigestEntry('debug_digest_t').as_update()
+            sh.client.write_update(update)
+        except KeyError:
+            print('No debug digest in p4')
 
         # Listening
         print('Listening on controller for switch "{}"'.format(switch))
@@ -162,18 +180,18 @@ def cmd_one(args):
             name = p4i.get_digest_name(packet.digest_id)
             print(f'Receive DegestList {name}')
             print((packet))
-            members = packet.data[0].struct.members
-            ts = int.from_bytes(members[0].bitstring, 'big')
-            ip = int.from_bytes(members[1].bitstring, 'big')
-            print(f'ingress_global_timestamp = {ts} us, {ts/1000000} s')
-            print(f'ipv4 = {ip>>24&0xff}.{ip>>16&0xff}.{ip>>8&0xff}.{ip&0xff}')
+            if name == 'timestamp_digest_t':
+                handle_digest_timestamp(packet)
+            elif name == 'debug_digest_t':
+                handle_digest_debug(packet)
+
         stream_client.recv_bg()
         while True:
             try:
                 cmd = input('> ').lower().strip()
                 if cmd == 'exit':
                     break
-            except Exception:
+            except (EOFError, KeyboardInterrupt):
                 break
         stream_client.stop()
     sh.teardown()
