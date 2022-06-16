@@ -25,10 +25,41 @@
 #define IPV4_IHL_MIN 4w5
 #define MAX_PORTS 511
 
-const bit<32> TYPE_HTTP_REQ_GET = 0x47455420; // "GET "
+const bit<32> TYPE_HTTP_REQ_GET  = 0x47455420; // "GET "
 const bit<32> TYPE_HTTP_REQ_POST = 0x504f5354; // "POST"
+const bit<32> TYPE_HTTP_REQ_HEAD = 0x48454144;
+const bit<32> TYPE_HTTP_REQ_PUT  = 0x50555420;
+const bit<32> TYPE_HTTP_REQ_DELE = 0x44454c45;
+const bit<32> TYPE_HTTP_REQ_CONN = 0x434f4e4e;
+const bit<32> TYPE_HTTP_REQ_OPTI = 0x4f505449;
+const bit<32> TYPE_HTTP_REQ_TRAC = 0x54524143;
+const bit<32> TYPE_HTTP_REQ_PATC = 0x50415443;
+// REQ_XX_SEP: include separator " /" after method
+// "<METHOD> /"
+const bit<40> TYPE_HTTP_REQ_GET_SEP  = 0x474554202f;
+const bit<40> TYPE_HTTP_REQ_PUT_SEP  = 0x505554202f;
+const bit<48> TYPE_HTTP_REQ_POST_SEP = 0x504f5354202f;
+const bit<48> TYPE_HTTP_REQ_HEAD_SEP = 0x48454144202f;
+const bit<56> TYPE_HTTP_REQ_TRAC_SEP = 0x5452414345202f;
+const bit<56> TYPE_HTTP_REQ_PATC_SEP = 0x5041544348202f;
+const bit<64> TYPE_HTTP_REQ_DELE_SEP = 0x44454c455445202f;
+const bit<72> TYPE_HTTP_REQ_CONN_SEP = 0x434f4e4e454354202f;
+const bit<72> TYPE_HTTP_REQ_OPTI_SEP = 0x4f5054494f4e53202f;
+
 const bit<32> TYPE_HTTP_RES = 0x48545450; // "HTTP"
 const bit<16> TYPE_HTTP_CRLF = 0x0d0a;
+
+enum bit<8> Method {
+    GET  = 0,
+    POST = 1,
+    HEAD = 2,
+    PUT  = 3,
+    DELETE = 4,
+    CONNECT = 5,
+    OPTIONS = 6,
+    TRACE = 7,
+    PATCH = 8
+}
 
 #ifndef _BOOL
 #define _BOOL bool

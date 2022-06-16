@@ -24,7 +24,7 @@ control http_ingress(
                     (bit<32>)local_metadata.http_body_len * 20 < local_metadata.http_header_content_length) {
                 // drop();
                 // ip_register.write(0, hdr.ipv4.src_addr);
-                local_metadata.bad_http_flag = true;
+                local_metadata.bad_http = true;
                 // clone_preserving_field_list(in CloneType type, in bit<32> session, bit<8> index)
                 // session: map session to clone port from controll plane
                 // index: copy local_matadata fields marked with @field_list(1) to cloned packets
@@ -56,7 +56,7 @@ control http_egress(
     }
 
     apply {
-        if (local_metadata.bad_http_flag) {
+        if (local_metadata.bad_http) {
             close_tcp();
             local_metadata.update_tcp_checksum = true;
             if (standard_metadata.instance_type == BMV2_V1MODEL_INSTANCE_TYPE_INGRESS_CLONE) {

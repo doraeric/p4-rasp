@@ -29,10 +29,9 @@ parser parser_impl(
     bit<8> http_header_key_len = 0;
     bit<4> http_header_key_state = 0;
     state start {
-        local_metadata.flag_http_req_get = 0;
-        local_metadata.flag_http_req_post = 0;
         local_metadata.flag_http_res = 0;
-        local_metadata.bad_http_flag = false;
+        local_metadata.is_http_req_start = false;
+        local_metadata.bad_http = false;
         transition select(standard_metadata.ingress_port) {
             CPU_PORT: parse_packet_out;
             default: parse_ethernet;
@@ -117,23 +116,102 @@ parser parser_impl(
     }
 
     state parse_http_req {
+        // "GET / HTTP/1.1" length is 14
+        bit<1> length_enough = local_metadata.app_len >= 14 ? 1w1: 1w0;
+        transition select(length_enough) {
+            1: parse_http_req_2;
+            default: accept;
+        }
+    }
+    state parse_http_req_2 {
         transition select(packet.lookahead<bit<32>>()) {
-            TYPE_HTTP_REQ_GET: parse_http_req_get;
-            TYPE_HTTP_REQ_POST: parse_http_req_post;
+            TYPE_HTTP_REQ_GET: parse_http_method_40;
+            TYPE_HTTP_REQ_PUT: parse_http_method_40;
+            TYPE_HTTP_REQ_POST: parse_http_method_48;
+            TYPE_HTTP_REQ_HEAD: parse_http_method_48;
+            TYPE_HTTP_REQ_TRAC: parse_http_method_56;
+            TYPE_HTTP_REQ_PATC: parse_http_method_56;
+            TYPE_HTTP_REQ_DELE: parse_http_method_64;
+            TYPE_HTTP_REQ_CONN: parse_http_method_72;
+            TYPE_HTTP_REQ_OPTI: parse_http_method_72;
             default: accept;
         }
     }
 
-    state parse_http_req_post {
-        local_metadata.flag_http_req_post = 1;
+    state parse_http_method_40 {
+        transition select(packet.lookahead<bit<40>>()) {
+            TYPE_HTTP_REQ_GET_SEP: parse_http_req_get;
+            TYPE_HTTP_REQ_PUT_SEP: parse_http_req_put;
+            default: accept;
+        }
+    }
+    state parse_http_method_48 {
+        transition select(packet.lookahead<bit<48>>()) {
+            TYPE_HTTP_REQ_POST_SEP: parse_http_req_post;
+            TYPE_HTTP_REQ_HEAD_SEP: parse_http_req_head;
+            default: accept;
+        }
+    }
+    state parse_http_method_56 {
+        transition select(packet.lookahead<bit<56>>()) {
+            TYPE_HTTP_REQ_TRAC_SEP: parse_http_req_trac;
+            TYPE_HTTP_REQ_PATC_SEP: parse_http_req_patc;
+            default: accept;
+        }
+    }
+    state parse_http_method_64 {
+        transition select(packet.lookahead<bit<64>>()) {
+            TYPE_HTTP_REQ_DELE_SEP: parse_http_req_dele;
+            default: accept;
+        }
+    }
+    state parse_http_method_72 {
+        transition select(packet.lookahead<bit<72>>()) {
+            TYPE_HTTP_REQ_CONN_SEP: parse_http_req_conn;
+            TYPE_HTTP_REQ_OPTI_SEP: parse_http_req_opti;
+            default: accept;
+        }
+    }
+
+    state parse_http_req_get {
+        local_metadata.http_method = Method.GET;
         transition parse_http_start_line_start;
     }
-    state parse_http_req_get {
-        local_metadata.flag_http_req_get = 1;
+    state parse_http_req_put {
+        local_metadata.http_method = Method.PUT;
+        transition parse_http_start_line_start;
+    }
+    state parse_http_req_post {
+        local_metadata.http_method = Method.POST;
+        transition parse_http_start_line_start;
+    }
+    state parse_http_req_head {
+        local_metadata.http_method = Method.HEAD;
+        transition parse_http_start_line_start;
+    }
+    state parse_http_req_trac {
+        local_metadata.http_method = Method.TRACE;
+        transition parse_http_start_line_start;
+    }
+    state parse_http_req_patc {
+        local_metadata.http_method = Method.PATCH;
+        transition parse_http_start_line_start;
+    }
+    state parse_http_req_dele {
+        local_metadata.http_method = Method.DELETE;
+        transition parse_http_start_line_start;
+    }
+    state parse_http_req_conn {
+        local_metadata.http_method = Method.CONNECT;
+        transition parse_http_start_line_start;
+    }
+    state parse_http_req_opti {
+        local_metadata.http_method = Method.OPTIONS;
         transition parse_http_start_line_start;
     }
 
     state parse_http_start_line_start {
+        local_metadata.is_http_req_start = true;
         local_metadata.http_body_len = 0;
         transition parse_http_start_line ;
     }

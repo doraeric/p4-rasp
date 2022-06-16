@@ -35,16 +35,17 @@ struct local_metadata_t {
     @field_list(1)
     bool          update_tcp_checksum;
     @field_list(1)
-    bit<16>       app_len;
-    bit<1> flag_http_req_get;
-    bit<1> flag_http_req_post;
+    bit<16>       app_len; // http length in bytes
     bit<1> flag_http_res;
     bit<16> http_body_len;
     @field_list(1)
     bit<16> tcp_len;
     bit<32> http_header_content_length;
     @field_list(1)
-    bool bad_http_flag;
+    bool bad_http;
+    @field_list(1)
+    bool is_http_req_start;
+    bit<8> http_method;
 }
 
 #endif
