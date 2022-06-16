@@ -46,6 +46,8 @@ struct local_metadata_t {
     @field_list(1)
     bool is_http_req_start;
     bit<8> http_method;
+    bool is_http_res_start;
+    bit<4> http_status;
 }
 
 #endif

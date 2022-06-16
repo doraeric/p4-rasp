@@ -316,14 +316,29 @@ parser parser_impl(
     }
 
     state parse_http_res {
-        transition select(packet.lookahead<bit<32>>()) {
-            TYPE_HTTP_RES: parse_http_res_2;
+        // "HTTP/1.1 200" length is 12
+        bit<1> length_enough = local_metadata.app_len >= 12 ? 1w1: 1w0;
+        transition select(length_enough) {
+            1: parse_http_res_2;
             default: accept;
         }
     }
 
     state parse_http_res_2 {
-        local_metadata.flag_http_res = 1;
+        packet.extract(hdr.http_buffer.next);
+        transition select(hdr.http_buffer.last.char) {
+            CHAR_SPACE: parse_http_res_3;
+            default: parse_http_res_2;
+        }
+    }
+
+    state parse_http_res_3 {
+        packet.extract(hdr.http_buffer.next);
+        bit<8> n = hdr.http_buffer.last.char - CHAR_0;
+        if (0 < n && n <= 5) {
+            local_metadata.is_http_res_start = true;
+            local_metadata.http_status = (bit<4>)n;
+        }
         transition accept;
     }
 }

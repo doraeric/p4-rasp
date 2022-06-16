@@ -47,7 +47,11 @@ const bit<72> TYPE_HTTP_REQ_CONN_SEP = 0x434f4e4e454354202f;
 const bit<72> TYPE_HTTP_REQ_OPTI_SEP = 0x4f5054494f4e53202f;
 
 const bit<32> TYPE_HTTP_RES = 0x48545450; // "HTTP"
+// RES_SEP "HTTP/1.1 "
+const bit<72> TYPE_HTTP_RES_SEP = 0x485454502f312e3120;
 const bit<16> TYPE_HTTP_CRLF = 0x0d0a;
+const bit<8> CHAR_SPACE = 0x20;
+const bit<8> CHAR_0 = 0x30;
 
 enum bit<8> Method {
     GET  = 0,
