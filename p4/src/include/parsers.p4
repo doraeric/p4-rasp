@@ -23,16 +23,16 @@
 parser parser_impl(
         packet_in packet,
         out headers_t hdr,
-        inout local_metadata_t local_metadata,
-        inout standard_metadata_t standard_metadata) {
+        inout local_metadata_t meta,
+        inout standard_metadata_t stdmeta) {
 
     bit<8> http_header_key_len = 0;
     bit<4> http_header_key_state = 0;
     state start {
-        local_metadata.flag_http_res = 0;
-        local_metadata.is_http_req_start = false;
-        local_metadata.bad_http = false;
-        transition select(standard_metadata.ingress_port) {
+        meta.flag_http_res = 0;
+        meta.is_http_req_start = false;
+        meta.bad_http = false;
+        transition select(stdmeta.ingress_port) {
             CPU_PORT: parse_packet_out;
             default: parse_ethernet;
         }
@@ -68,10 +68,10 @@ parser parser_impl(
 
     state parse_tcp {
         packet.extract(hdr.tcp);
-        local_metadata.l4_src_port = hdr.tcp.src_port;
-        local_metadata.l4_dst_port = hdr.tcp.dst_port;
-        local_metadata.tcp_len = hdr.ipv4.len - (bit<16>)hdr.ipv4.ihl * 4;
-        local_metadata.update_tcp_checksum = false;
+        meta.l4_src_port = hdr.tcp.src_port;
+        meta.l4_dst_port = hdr.tcp.dst_port;
+        meta.tcp_len = hdr.ipv4.len - (bit<16>)hdr.ipv4.ihl * 4;
+        meta.update_tcp_checksum = false;
         verify(hdr.tcp.data_offset >=5, error.TcpDataOffsetTooSmall);
         transition select(hdr.tcp.data_offset){
             5: parse_app_len;
@@ -87,15 +87,15 @@ parser parser_impl(
 
     state parse_udp {
         packet.extract(hdr.udp);
-        local_metadata.l4_src_port = hdr.udp.src_port;
-        local_metadata.l4_dst_port = hdr.udp.dst_port;
+        meta.l4_src_port = hdr.udp.src_port;
+        meta.l4_dst_port = hdr.udp.dst_port;
         transition accept;
     }
 
     state parse_app_len {
-        local_metadata.app_len =
+        meta.app_len =
             hdr.ipv4.len - (bit<16>)(hdr.ipv4.ihl + hdr.tcp.data_offset) * 4;
-        transition select(local_metadata.app_len) {
+        transition select(meta.app_len) {
             0: accept;
             default: parse_app;
         }
@@ -117,7 +117,7 @@ parser parser_impl(
 
     state parse_http_req {
         // "GET / HTTP/1.1" length is 14
-        bit<1> length_enough = local_metadata.app_len >= 14 ? 1w1: 1w0;
+        bit<1> length_enough = meta.app_len >= 14 ? 1w1: 1w0;
         transition select(length_enough) {
             1: parse_http_req_2;
             default: accept;
@@ -174,45 +174,45 @@ parser parser_impl(
     }
 
     state parse_http_req_get {
-        local_metadata.http_method = Method.GET;
+        meta.http_method = Method.GET;
         transition parse_http_start_line_start;
     }
     state parse_http_req_put {
-        local_metadata.http_method = Method.PUT;
+        meta.http_method = Method.PUT;
         transition parse_http_start_line_start;
     }
     state parse_http_req_post {
-        local_metadata.http_method = Method.POST;
+        meta.http_method = Method.POST;
         transition parse_http_start_line_start;
     }
     state parse_http_req_head {
-        local_metadata.http_method = Method.HEAD;
+        meta.http_method = Method.HEAD;
         transition parse_http_start_line_start;
     }
     state parse_http_req_trac {
-        local_metadata.http_method = Method.TRACE;
+        meta.http_method = Method.TRACE;
         transition parse_http_start_line_start;
     }
     state parse_http_req_patc {
-        local_metadata.http_method = Method.PATCH;
+        meta.http_method = Method.PATCH;
         transition parse_http_start_line_start;
     }
     state parse_http_req_dele {
-        local_metadata.http_method = Method.DELETE;
+        meta.http_method = Method.DELETE;
         transition parse_http_start_line_start;
     }
     state parse_http_req_conn {
-        local_metadata.http_method = Method.CONNECT;
+        meta.http_method = Method.CONNECT;
         transition parse_http_start_line_start;
     }
     state parse_http_req_opti {
-        local_metadata.http_method = Method.OPTIONS;
+        meta.http_method = Method.OPTIONS;
         transition parse_http_start_line_start;
     }
 
     state parse_http_start_line_start {
-        local_metadata.is_http_req_start = true;
-        local_metadata.http_body_len = 0;
+        meta.is_http_req_start = true;
+        meta.http_body_len = 0;
         transition parse_http_start_line ;
     }
     state parse_http_start_line {
@@ -248,7 +248,7 @@ parser parser_impl(
     state parse_http_headers_stop {
         packet.extract(hdr.http_buffer.next);
         packet.extract(hdr.http_buffer.next);
-        local_metadata.http_body_len = local_metadata.app_len - (bit<16>)hdr.http_buffer.lastIndex;
+        meta.http_body_len = meta.app_len - (bit<16>)hdr.http_buffer.lastIndex;
         transition accept;
     }
 
@@ -283,7 +283,7 @@ parser parser_impl(
                     && hdr.http_buffer[hdr.http_buffer.lastIndex - 14].char == 0x43
                     ) {
                 http_header_key_state = 2;
-                local_metadata.http_header_content_length = 0;
+                meta.http_header_content_length = 0;
             }
         }
         transition select(http_header_key_state) {
@@ -309,15 +309,15 @@ parser parser_impl(
 
     state parse_http_header_content_length_2 {
         if (hdr.http_buffer.last.char >= 0x30 && hdr.http_buffer.last.char <= 0x39) {
-            local_metadata.http_header_content_length =
-                local_metadata.http_header_content_length * 10 + (bit<32>)(hdr.http_buffer.last.char - 0x30);
+            meta.http_header_content_length =
+                meta.http_header_content_length * 10 + (bit<32>)(hdr.http_buffer.last.char - 0x30);
         }
         transition parse_http_header_value;
     }
 
     state parse_http_res {
         // "HTTP/1.1 200" length is 12
-        bit<1> length_enough = local_metadata.app_len >= 12 ? 1w1: 1w0;
+        bit<1> length_enough = meta.app_len >= 12 ? 1w1: 1w0;
         transition select(length_enough) {
             1: parse_http_res_2;
             default: accept;
@@ -336,8 +336,8 @@ parser parser_impl(
         packet.extract(hdr.http_buffer.next);
         bit<8> n = hdr.http_buffer.last.char - CHAR_0;
         if (0 < n && n <= 5) {
-            local_metadata.is_http_res_start = true;
-            local_metadata.http_status = (bit<4>)n;
+            meta.is_http_res_start = true;
+            meta.http_status = (bit<4>)n;
         }
         transition accept;
     }
