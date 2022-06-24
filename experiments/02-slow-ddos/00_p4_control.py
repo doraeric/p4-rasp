@@ -16,7 +16,7 @@ from utils import p4sh_helper
 
 logger = logging.getLogger('')
 formatter = logging.Formatter(
-    ('%(asctime)s.%(msecs)03d: %(process)d: %(levelname).1s/%(name)s: '
+    ('%(asctime)s.%(msecs)03d: %(levelname).1s/%(name)s: '
      '%(filename)s:%(lineno)d: %(message)s'),
     datefmt='%Y-%m-%d %H:%M:%S',
 )
