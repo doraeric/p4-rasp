@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from hexdump import hexdump
 import json
 import logging
+import logging.handlers
 import os
 from pathlib import Path
 import readline # noqa
@@ -13,11 +14,12 @@ import p4runtime_sh.shell as sh
 from gen_full_netcfg import set_default_net_config
 from utils import p4sh_helper
 
-logging.basicConfig(
-    format=('%(asctime)s.%(msecs)03d: %(process)d: %(levelname).1s/%(name)s: '
-            '%(filename)s:%(lineno)d: %(message)s'),
+logger = logging.getLogger('')
+formatter = logging.Formatter(
+    ('%(asctime)s.%(msecs)03d: %(process)d: %(levelname).1s/%(name)s: '
+     '%(filename)s:%(lineno)d: %(message)s'),
     datefmt='%Y-%m-%d %H:%M:%S',
-    level=logging.INFO)
+)
 
 
 @dataclass
@@ -231,8 +233,34 @@ def cmd_one(args):  # noqa: C901
     sh.teardown()
 
 
+def setup_logging(args):
+    logger.setLevel(logging.INFO)
+    if len(args.log) == 0:
+        console = logging.StreamHandler()
+        console.setFormatter(formatter)
+        logger.addHandler(console)
+    for log in args.log:
+        if log.startswith('tcp:'):
+            tcp = log.split(':')
+            tcp = logging.handlers.SocketHandler(tcp[1], int(tcp[2]))
+            # https://blog.csdn.net/mvpboss1004/article/details/54425819
+            tcp.makePickle = lambda r: (tcp.format(r) + '\n').encode('utf-8')
+            tcp.setFormatter(formatter)
+            logger.addHandler(tcp)
+        elif log.endswith('.log'):
+            file_handler = logging.FileHandler(log)
+            file_handler.setFormatter(formatter)
+            logger.addHandler(file_handler)
+        elif log == 'stdout':
+            console = logging.StreamHandler()
+            console.setFormatter(formatter)
+            logger.addHandler(console)
+
+
 def main():
     pser = argparse.ArgumentParser()
+    pser.add_argument('--log', action='append', default=[],
+                      help='log to stdout, tcp:<ip>:<port>, or <file.log>')
     subparsers = pser.add_subparsers(
         required=True, help='Setup rules for all switches or one switch')
     pser_all = subparsers.add_parser('all')
@@ -244,6 +272,8 @@ def main():
                           help='Listen on controller for packet in')
     pser_one.set_defaults(func=cmd_one)
     args = pser.parse_args()
+
+    setup_logging(args)
     print(f'P4INFO={Path(P4INFO).resolve()}')
     print(f'P4BIN={Path(P4BIN).resolve()}')
     net_config = json.load(
