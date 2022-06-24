@@ -135,11 +135,37 @@ def handle_digest_timestamp(packet):
     print(f'ipv4 = {ip>>24&0xff}.{ip>>16&0xff}.{ip>>8&0xff}.{ip&0xff}')
 
 
+def handle_new_conn(packet):
+    import random
+    members = packet.data[0].struct.members
+    te = p4sh_helper.TableEntry('ingress.http_ingress.tcp_conn')(
+        action='add_meta')
+    te.match["hdr.ipv4.src_addr"] = members[0].bitstring
+    te.match["hdr.ipv4.dst_addr"] = members[1].bitstring
+    te.match["hdr.tcp.src_port"] = members[2].bitstring
+    te.match["hdr.tcp.dst_port"] = members[3].bitstring
+    n = random.randint(1, 1023)
+    te.action['index'] = str(n)
+    te.insert()
+    logging.info('Random: %s', n)
+
+
+def handle_conn_match(packet):
+    members = packet.data[0].struct.members
+    ns = [int.from_bytes(i.bitstring, 'big') for i in members]
+    logging.info('conn_match: %s', ns)
+
+
 def handle_digest_debug(packet):
     pass
 
 
-def cmd_one(args):
+def enable_digest(p4i: p4sh_helper.P4Info, name: str) -> None:
+    update = p4i.DigestEntry(name).as_update()
+    sh.client.write_update(update)
+    logging.info('Enable digest: %s', name)
+
+def cmd_one(args):  # noqa: C901
     """Setup one switch and sniff.
 
     Args:
@@ -156,8 +182,9 @@ def cmd_one(args):
 
         # Insert digest
         p4i = p4sh_helper.P4Info.read_txt(P4INFO)
-        update = p4i.DigestEntry('timestamp_digest_t').as_update()
-        sh.client.write_update(update)
+        enable_digest(p4i, 'timestamp_digest_t')
+        enable_digest(p4i, 'new_conn_t')
+        enable_digest(p4i, 'conn_match_t')
         try:
             update = p4i.DigestEntry('debug_digest_t').as_update()
             sh.client.write_update(update)
@@ -178,12 +205,19 @@ def cmd_one(args):
         @stream_client.on('digest')
         def digest_handler(packet):
             name = p4i.get_digest_name(packet.digest_id)
-            print(f'Receive DegestList {name}')
-            print((packet))
+            print(f'Receive DegestList {name} #{packet.list_id}')
+            if len(packet.data) == 1:
+                print(packet.data[0])
+            else:
+                print(packet)
             if name == 'timestamp_digest_t':
                 handle_digest_timestamp(packet)
+            elif name == 'new_conn_t':
+                handle_new_conn(packet)
             elif name == 'debug_digest_t':
                 handle_digest_debug(packet)
+            elif name == 'conn_match_t':
+                handle_conn_match(packet)
 
         stream_client.recv_bg()
         while True:

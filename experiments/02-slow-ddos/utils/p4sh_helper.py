@@ -10,6 +10,8 @@ from typing import Literal
 from google.protobuf import text_format
 from p4.config.v1 import p4info_pb2
 from p4.v1 import p4runtime_pb2
+import p4runtime_sh
+import p4runtime_sh.shell as sh
 from p4runtime_sh.shell import P4Objects
 from p4runtime_sh.context import P4Type
 from p4runtime_sh.p4runtime import P4RuntimeClient
@@ -221,3 +223,50 @@ class StreamClient:
     def stop(self):
         """Stop receiving packets in background."""
         self.pill2kill.set()
+
+
+class TableEntry(sh.TableEntry):
+    def __init__(self, table_name=None):
+        super().__init__(table_name)
+        self.match = MatchKeyBin(table_name, self._info.match_fields)
+
+    def __call__(self, **kwargs):
+        for name, value in kwargs.items():
+            if name == "action" and type(value) is str:
+                value = Action(value)
+            setattr(self, name, value)
+        return self
+
+
+class MatchKeyBin(sh.MatchKey):
+    """MatchKey that is able to assign bytes value directly."""
+    def __setitem__(self, name: str, value: str | bytes):
+        field_info = self._get_mf(name)
+        if isinstance(value, str):
+            self._mk[name] = self._parse_mf(value, field_info)
+        elif isinstance(value, bytes):
+            self._mk[name] = self._parse_mf_bin(value, field_info)
+        else:
+            raise TypeError('`value` should be either str or bytes')
+
+    def _parse_mf_bin(self, value: bytes, field_info):
+        if field_info.match_type == p4info_pb2.MatchField.EXACT:
+            return self._sanitize_and_convert_mf_exact(value, field_info)
+        elif field_info.match_type == p4info_pb2.MatchField.LPM:
+            raise NotImplementedError
+        elif field_info.match_type == p4info_pb2.MatchField.TERNARY:
+            raise NotImplementedError
+        elif field_info.match_type == p4info_pb2.MatchField.RANGE:
+            raise NotImplementedError
+        elif field_info.match_type == p4info_pb2.MatchField.OPTIONAL:
+            raise NotImplementedError
+        else:
+            raise p4runtime_sh.utils.UserError(
+                f"Unsupported match type for field:\n{field_info}")
+
+
+class Action(sh.Action):
+    """Quiet version Action"""
+    def __setitem__(self, name, value):
+        param_info = self._get_param(name)
+        self._param_values[name] = self._parse_param(value, param_info)
