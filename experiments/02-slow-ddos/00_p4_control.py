@@ -14,11 +14,13 @@ import p4runtime_sh.shell as sh
 from gen_full_netcfg import set_default_net_config
 from utils import p4sh_helper
 
-logger = logging.getLogger('')
+log = logging.getLogger('p4_control')
+# Do not propagate to root log
+log.propagate = False
 formatter = logging.Formatter(
     ('%(asctime)s.%(msecs)03d: %(levelname).1s/%(name)s: '
      '%(filename)s:%(lineno)d: %(message)s'),
-    datefmt='%Y-%m-%d %H:%M:%S',
+    datefmt='%H:%M:%S',
 )
 
 
@@ -40,7 +42,7 @@ def setup_all_switches() -> None:
 
 
 def setup_one_switch(switch: str) -> None:
-    logging.info('Configure switch %s', switch)
+    log.info('===  Configure switch %s  ===', switch)
     net_config = _app_context.net_config
     switch_info = net_config['devices_by_name'][switch]
     sh.setup(
@@ -53,16 +55,18 @@ def setup_one_switch(switch: str) -> None:
     router_ipv4_net = switch_info['segmentrouting']['routerIpv4']
     router_ipv4_addr = router_ipv4_net.split('/')[0]
     # arp
-    logging.info('insert arp')
-    te = sh.TableEntry('ingress.next.arp_table')(
+    target_addr = switch_info['segmentrouting']['routerMac']
+    log.info('insert arp %s -> %s', router_ipv4_addr, target_addr)
+    te = p4sh_helper.TableEntry('ingress.next.arp_table')(
         action='ingress.next.arp_reply')
     te.match["hdr.arp.opcode"] = "1"
     te.match["hdr.arp.proto_dst_addr"] = router_ipv4_addr
-    te.action['target_addr'] = switch_info['segmentrouting']['routerMac']
+    te.action['target_addr'] = target_addr
     te.insert()
-    # to subnet default: drop
-    logging.info('default subnet')
-    te = sh.TableEntry('ingress.next.ipv4_lpm')(action='ingress.next.drop')
+    # default action for no matching packet in subnet: drop
+    log.info('drop no matching packet in %s', router_ipv4_net)
+    te = p4sh_helper.TableEntry('ingress.next.ipv4_lpm')(
+        action='ingress.next.drop')
     te.match["hdr.ipv4.dst_addr"] = router_ipv4_net
     te.insert()
     # forward known destination
@@ -72,11 +76,10 @@ def setup_one_switch(switch: str) -> None:
         if dst_type == 'host':
             dst_info = net_config['hosts_by_name'][dst_name]['basic']
             dst_ip = dst_info['ips'][0].split('/')[0]
-            logging.info('forward host')
-            logging.info('match dst_addr=%s/32', dst_ip)
-            logging.info('dst_addr=%s, port=%s', dst_info['mac'],
-                         link['from']['port'])
-            te = sh.TableEntry('ingress.next.ipv4_lpm')(
+            log.info('forward dst=%s/32 to host', dst_ip)
+            log.debug(
+                'dst_addr=%s, port=%s', dst_info['mac'], link['from']['port'])
+            te = p4sh_helper.TableEntry('ingress.next.ipv4_lpm')(
                 action='ingress.next.ipv4_forward')
             te.match["hdr.ipv4.dst_addr"] = dst_ip + '/32'
             te.action['dst_addr'] = dst_info['mac']
@@ -86,8 +89,8 @@ def setup_one_switch(switch: str) -> None:
             dst_info = (net_config['devices_by_name'][dst_name]
                         ['segmentrouting'])
             dst_ip = dst_info['routerIpv4']
-            logging.info('forward device')
-            te = sh.TableEntry('ingress.next.ipv4_lpm')(
+            log.info('forward dst=%s to device', dst_ip)
+            te = p4sh_helper.TableEntry('ingress.next.ipv4_lpm')(
                 action='ingress.next.ipv4_forward')
             te.match["hdr.ipv4.dst_addr"] = dst_ip
             te.action['dst_addr'] = dst_info['routerMac']
@@ -109,8 +112,8 @@ def setup_one_switch(switch: str) -> None:
             else:
                 dst_addr = (net_config['devices_by_name'][other['name']]
                             ['segmentrouting']['routerMac'])
-        logging.info('default gateway')
-        te = sh.TableEntry('ingress.next.ipv4_lpm')(
+        log.info('default gateway: %s', dst_addr)
+        te = p4sh_helper.TableEntry('ingress.next.ipv4_lpm')(
             action='ingress.next.ipv4_forward')
         te.action['dst_addr'] = dst_addr
         te.action["port"] = port
@@ -119,7 +122,7 @@ def setup_one_switch(switch: str) -> None:
         break
     if not set_gw:
         # insert no action as default table entry for consistent behaviour
-        logging.info('default gateway')
+        log.info('default gateway: no action')
         te = sh.TableEntry('ingress.next.ipv4_lpm')(action='NoAction')
         te.insert()
         set_gw = True
@@ -150,13 +153,13 @@ def handle_new_conn(packet):
     n = random.randint(1, 1023)
     te.action['index'] = str(n)
     te.insert()
-    logging.info('Random: %s', n)
+    log.info('Random: %s', n)
 
 
 def handle_conn_match(packet):
     members = packet.data[0].struct.members
     ns = [int.from_bytes(i.bitstring, 'big') for i in members]
-    logging.info('conn_match: %s', ns)
+    log.info('conn_match: %s', ns)
 
 
 def handle_digest_debug(packet):
@@ -166,7 +169,7 @@ def handle_digest_debug(packet):
 def enable_digest(p4i: p4sh_helper.P4Info, name: str) -> None:
     update = p4i.DigestEntry(name).as_update()
     sh.client.write_update(update)
-    logging.info('Enable digest: %s', name)
+    log.info('Enable digest: %s', name)
 
 def cmd_one(args):  # noqa: C901
     """Setup one switch and sniff.
@@ -199,7 +202,7 @@ def cmd_one(args):  # noqa: C901
             update = p4i.DigestEntry('debug_digest_t').as_update()
             sh.client.write_update(update)
         except KeyError:
-            print('No debug digest in p4')
+            log.info('No debug digest in p4')
 
         # Listening
         print('Listening on controller for switch "{}"'.format(switch))
@@ -215,11 +218,11 @@ def cmd_one(args):  # noqa: C901
         @stream_client.on('digest')
         def digest_handler(packet):
             name = p4i.get_digest_name(packet.digest_id)
-            print(f'Receive DegestList {name} #{packet.list_id}')
+            log.info('Receive digest %s #%s', name, packet.list_id)
             if len(packet.data) == 1:
-                print(packet.data[0])
+                log.debug(packet.data[0])
             else:
-                print(packet)
+                log.debug(packet)
             if name == 'timestamp_digest_t':
                 handle_digest_timestamp(packet)
             elif name == 'new_conn_t':
@@ -242,33 +245,46 @@ def cmd_one(args):  # noqa: C901
 
 
 def setup_logging(args):
-    logger.setLevel(logging.INFO)
+    if args.log_level is not None:
+        level = logging.getLevelName(args.log_level)
+    else:
+        level = logging.INFO
+    log.setLevel(level)
     if len(args.log) == 0:
         console = logging.StreamHandler()
         console.setFormatter(formatter)
-        logger.addHandler(console)
-    for log in args.log:
-        if log.startswith('tcp:'):
-            tcp = log.split(':')
+        log.addHandler(console)
+    for log_dest in args.log:
+        if log_dest.startswith('tcp:'):
+            tcp = log_dest.split(':')
             tcp = logging.handlers.SocketHandler(tcp[1], int(tcp[2]))
             # https://blog.csdn.net/mvpboss1004/article/details/54425819
             tcp.makePickle = lambda r: (tcp.format(r) + '\n').encode('utf-8')
             tcp.setFormatter(formatter)
-            logger.addHandler(tcp)
-        elif log.endswith('.log'):
-            file_handler = logging.FileHandler(log)
-            file_handler.setFormatter(formatter)
-            logger.addHandler(file_handler)
-        elif log == 'stdout':
+            log.addHandler(tcp)
+        elif log_dest.endswith('.log'):
+            file_handler = logging.FileHandler(log_dest)
+            file_handler.setFormatter(logging.Formatter(
+                formatter._fmt, datefmt='%Y-%m-%d %H:%M:%S'))
+            log.addHandler(file_handler)
+        elif log_dest == 'stdout':
             console = logging.StreamHandler()
             console.setFormatter(formatter)
-            logger.addHandler(console)
+            log.addHandler(console)
 
 
 def main():
     pser = argparse.ArgumentParser()
     pser.add_argument('--log', action='append', default=[],
                       help='log to stdout, tcp:<ip>:<port>, or <file.log>')
+    # https://stackoverflow.com/questions/14097061
+    pser.add_argument(
+        '--log-level',
+        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
+        help="Set the logging level")
+    pser.add_argument(
+        '--debug', '-d', action="store_const", const=logging.DEBUG,
+        dest='log_level', help="Set the logging level to debug")
     subparsers = pser.add_subparsers(
         required=True, help='Setup rules for all switches or one switch')
     pser_all = subparsers.add_parser('all')
