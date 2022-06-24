@@ -40,6 +40,7 @@ def setup_all_switches() -> None:
 
 
 def setup_one_switch(switch: str) -> None:
+    logging.info('Configure switch %s', switch)
     net_config = _app_context.net_config
     switch_info = net_config['devices_by_name'][switch]
     sh.setup(
@@ -175,6 +176,13 @@ def cmd_one(args):  # noqa: C901
     """
     switch = args.switch
     switch = 's' + switch if not switch.startswith('s') else switch
+    if args.all:
+        net_config = _app_context.net_config
+        for s in net_config['devices_by_name'].keys():
+            if s == switch:
+                continue
+            setup_one_switch(s)
+            sh.teardown()
     setup_one_switch(switch)
     if args.listen:
         # Change default gateway to controller
@@ -270,6 +278,10 @@ def main():
                           help='The switch name in mininet')
     pser_one.add_argument('-l', '--listen', action='store_true',
                           help='Listen on controller for packet in')
+    pser_one.add_argument(
+        '-a', '--all', action='store_true',
+        help='Add rules for all switches, but listening only works for '
+        'specified switch')
     pser_one.set_defaults(func=cmd_one)
     args = pser.parse_args()
 
