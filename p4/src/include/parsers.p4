@@ -28,6 +28,9 @@ parser parser_impl(
 
     bit<8> http_header_key_len = 0;
     bit<4> http_header_key_state = 0;
+    bit<4> conti_content_state = 0;
+    bit<32> conti_content = 0;
+    bit<4> crlf_start_count = 0;
     state start {
         meta.flag_http_res = 0;
         meta.is_http_req_start = false;
@@ -115,12 +118,103 @@ parser parser_impl(
         }
     }
 
+    // parse following http packets that is not the first segment.
+    // may be headers, body.
+    // Look for certain keys if possible.
+    state parse_http_conti {
+        packet.extract(hdr.http_buffer.next);
+        bit<16> index = (bit<16>)hdr.http_buffer.lastIndex;
+        bit<8> char = hdr.http_buffer.last.char;
+        if (index < 4) {
+            if (crlf_start_count == (bit<4>)index) {
+                if (char == CHAR_CR || char == CHAR_LF) {
+                    if (index == 0) {
+                        crlf_start_count = crlf_start_count + 1;
+                    } else {
+                        if (char != hdr.http_buffer[index-1].char) {
+                            crlf_start_count = crlf_start_count + 1;
+                        }
+                    }
+                    if (char == CHAR_LF && crlf_start_count == (bit<4>)index+1) {
+                        meta.crlf_start_count = crlf_start_count;
+                        if (index == 3) {
+                            meta.has_2_crlf = true;
+                        }
+                    }
+                }
+            }
+        }
+        if (3 < index && !meta.has_2_crlf) {
+            if (char == CHAR_LF && hdr.http_buffer[index-1].char == CHAR_CR
+                && hdr.http_buffer[index-2].char == CHAR_LF
+                && hdr.http_buffer[index-3].char == CHAR_CR
+            ) {
+                meta.has_2_crlf = true;
+            }
+        }
+        if (conti_content_state > 0) {
+            // state_number. description: received string
+            // 1. activate: "\r\nContent-Length: "
+            // 2. number: "0-9"
+            // 3. CR
+            // 4. LF
+            if (conti_content_state == 1 && char - CHAR_0 < 10) {
+                bit<8> n = char - CHAR_0;
+                conti_content = (bit<32>)n;
+                conti_content_state = 2;
+            }
+            else if (conti_content_state == 2 && char - CHAR_0 < 10) {
+                bit<8> n = char - CHAR_0;
+                conti_content = conti_content * 10 + (bit<32>)n;
+            }
+            else if (conti_content_state == 2 && char == CHAR_CR) {
+                conti_content_state = 3;
+            } else if (conti_content_state == 3 && char == CHAR_LF) {
+                meta.http_header_content_length = conti_content;
+                conti_content = 0;
+                conti_content_state = 4;
+            } else {
+                conti_content = 0;
+                conti_content_state = 0;
+            }
+        }
+        // "RNContent-Length: "
+        if (!meta.has_2_crlf && conti_content_state == 0 && 17 <= index) {
+            if (char == CHAR_SPACE
+                && hdr.http_buffer[index-1].char == CHAR_COLON
+                && hdr.http_buffer[index-2].char == CHAR_h
+                && hdr.http_buffer[index-3].char == CHAR_t
+                && hdr.http_buffer[index-4].char == CHAR_g
+                && hdr.http_buffer[index-5].char == CHAR_n
+                && hdr.http_buffer[index-6].char == CHAR_e
+                && hdr.http_buffer[index-7].char == CHAR_L
+                && hdr.http_buffer[index-8].char == CHAR_DASH
+                && hdr.http_buffer[index-9].char == CHAR_t
+                && hdr.http_buffer[index-10].char == CHAR_n
+                && hdr.http_buffer[index-11].char == CHAR_e
+                && hdr.http_buffer[index-12].char == CHAR_t
+                && hdr.http_buffer[index-13].char == CHAR_n
+                && hdr.http_buffer[index-14].char == CHAR_o
+                && hdr.http_buffer[index-15].char == CHAR_C
+                && hdr.http_buffer[index-16].char == CHAR_LF
+                && hdr.http_buffer[index-17].char == CHAR_CR
+            ) {
+               conti_content_state = 1;
+            }
+        }
+        bit<1> loop = meta.app_len - 1 > index && !meta.has_2_crlf ? 1w1: 1w0;
+        transition select(loop) {
+            1: parse_http_conti;
+            default: accept;
+        }
+    }
+
     state parse_http_req {
         // "GET / HTTP/1.1" length is 14
         bit<1> length_enough = meta.app_len >= 14 ? 1w1: 1w0;
         transition select(length_enough) {
             1: parse_http_req_2;
-            default: accept;
+            default: parse_http_conti;
         }
     }
     state parse_http_req_2 {
@@ -134,7 +228,7 @@ parser parser_impl(
             TYPE_HTTP_REQ_DELE: parse_http_method_64;
             TYPE_HTTP_REQ_CONN: parse_http_method_72;
             TYPE_HTTP_REQ_OPTI: parse_http_method_72;
-            default: accept;
+            default: parse_http_conti;
         }
     }
 
@@ -142,34 +236,34 @@ parser parser_impl(
         transition select(packet.lookahead<bit<40>>()) {
             TYPE_HTTP_REQ_GET_SEP: parse_http_req_get;
             TYPE_HTTP_REQ_PUT_SEP: parse_http_req_put;
-            default: accept;
+            default: parse_http_conti;
         }
     }
     state parse_http_method_48 {
         transition select(packet.lookahead<bit<48>>()) {
             TYPE_HTTP_REQ_POST_SEP: parse_http_req_post;
             TYPE_HTTP_REQ_HEAD_SEP: parse_http_req_head;
-            default: accept;
+            default: parse_http_conti;
         }
     }
     state parse_http_method_56 {
         transition select(packet.lookahead<bit<56>>()) {
             TYPE_HTTP_REQ_TRAC_SEP: parse_http_req_trac;
             TYPE_HTTP_REQ_PATC_SEP: parse_http_req_patc;
-            default: accept;
+            default: parse_http_conti;
         }
     }
     state parse_http_method_64 {
         transition select(packet.lookahead<bit<64>>()) {
             TYPE_HTTP_REQ_DELE_SEP: parse_http_req_dele;
-            default: accept;
+            default: parse_http_conti;
         }
     }
     state parse_http_method_72 {
         transition select(packet.lookahead<bit<72>>()) {
             TYPE_HTTP_REQ_CONN_SEP: parse_http_req_conn;
             TYPE_HTTP_REQ_OPTI_SEP: parse_http_req_opti;
-            default: accept;
+            default: parse_http_conti;
         }
     }
 
@@ -213,7 +307,7 @@ parser parser_impl(
     state parse_http_start_line_start {
         meta.is_http_req_start = true;
         meta.http_body_len = 0;
-        transition parse_http_start_line ;
+        transition parse_http_start_line;
     }
     state parse_http_start_line {
         packet.extract(hdr.http_buffer.next);
@@ -248,6 +342,7 @@ parser parser_impl(
     state parse_http_headers_stop {
         packet.extract(hdr.http_buffer.next);
         packet.extract(hdr.http_buffer.next);
+        meta.has_2_crlf = true;
         meta.http_body_len = meta.app_len - (bit<16>)hdr.http_buffer.lastIndex;
         transition accept;
     }

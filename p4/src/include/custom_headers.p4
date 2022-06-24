@@ -48,6 +48,9 @@ struct local_metadata_t {
     bit<8> http_method;
     bool is_http_res_start;
     bit<4> http_status;
+    bit<4> crlf_start_count;
+    bool has_2_crlf;
+    bit<10> register_index;
 }
 
 #endif

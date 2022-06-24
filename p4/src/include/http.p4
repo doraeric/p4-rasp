@@ -8,6 +8,20 @@
 // onos/pipelines/basic/src/main/resources/include/int_definitions.p4
 // onos/pipelines/fabric/impl/src/main/resources/include/define.p4
 
+struct new_conn_t {
+    bit<32> src_addr;
+    bit<32> dst_addr;
+    bit<16> src_port;
+    bit<16> dst_port;
+}
+
+struct conn_match_t {
+    bit<10> value;
+    bit<1> is_http_req_start;
+    bit<1> has_2_crlf;
+    bit<32> content_length;
+}
+
 control http_ingress(
         inout headers_t hdr,
         inout local_metadata_t local_metadata,
@@ -18,7 +32,50 @@ control http_ingress(
         mark_to_drop(standard_metadata);
     }
 
+    action report_new_conn() {
+        digest<new_conn_t>(1, {
+            hdr.ipv4.src_addr,
+            hdr.ipv4.dst_addr,
+            hdr.tcp.src_port,
+            hdr.tcp.dst_port
+        });
+    }
+
+    action add_meta(bit<10> index) {
+        local_metadata.register_index = index;
+    }
+
+    table tcp_conn {
+        key = {
+            hdr.ipv4.src_addr: exact;
+            hdr.ipv4.dst_addr: exact;
+            hdr.tcp.src_port: exact;
+            hdr.tcp.dst_port: exact;
+        }
+        actions = {
+            add_meta;
+            NoAction;
+        }
+    }
+
     apply {
+        // The switch only sends one digest out per packet, be careful
+        if (tcp_conn.apply().hit) {
+            if (local_metadata.app_len > 0) {
+                // For debug
+                digest<conn_match_t>(1, {
+                    local_metadata.register_index,
+                    local_metadata.is_http_req_start ? 1w1: 0,
+                    local_metadata.has_2_crlf ? 1w1: 0,
+                    local_metadata.http_header_content_length
+                });
+            }
+        } else {
+            // report when first SYN is received
+            if (hdr.tcp.dst_port == 80 && hdr.tcp.ctrl == 6w0b000010) {
+                report_new_conn();
+            }
+        }
         if (local_metadata.http_header_content_length > 0) {
             if (local_metadata.http_body_len > 0 &&
                     (bit<32>)local_metadata.http_body_len * 20 < local_metadata.http_header_content_length) {
