@@ -96,8 +96,9 @@ parser parser_impl(
     }
 
     state parse_app_len {
+        // cast to bit<16> first to prevent overflow
         meta.app_len =
-            hdr.ipv4.len - (bit<16>)(hdr.ipv4.ihl + hdr.tcp.data_offset) * 4;
+            hdr.ipv4.len - ((bit<16>)hdr.ipv4.ihl + (bit<16>)hdr.tcp.data_offset) * 4;
         transition select(meta.app_len) {
             0: accept;
             default: parse_app;
