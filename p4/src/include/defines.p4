@@ -113,15 +113,15 @@ const bit<8> CHAR_y = 0x79;
 const bit<8> CHAR_z = 0x7a;
 
 enum bit<8> Method {
-    GET  = 0,
-    POST = 1,
-    HEAD = 2,
-    PUT  = 3,
-    DELETE = 4,
-    CONNECT = 5,
-    OPTIONS = 6,
-    TRACE = 7,
-    PATCH = 8
+    GET  = 1,
+    POST = 2,
+    HEAD = 3,
+    PUT  = 4,
+    DELETE = 5,
+    CONNECT = 6,
+    OPTIONS = 7,
+    TRACE = 8,
+    PATCH = 9
 }
 
 #ifndef _BOOL
