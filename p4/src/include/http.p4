@@ -18,6 +18,7 @@ struct new_conn_t {
 struct conn_match_t {
     bit<10> value;
     bit<1> is_http_req_start;
+    bit<1> is_get;
     bit<1> has_2_crlf;
     bit<32> content_length;
 }
@@ -66,6 +67,7 @@ control http_ingress(
                 digest<conn_match_t>(1, {
                     local_metadata.register_index,
                     local_metadata.is_http_req_start ? 1w1: 0,
+                    local_metadata.http_method == Method.GET ? 1w1 : 0,
                     local_metadata.has_2_crlf ? 1w1: 0,
                     local_metadata.http_header_content_length
                 });
