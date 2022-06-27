@@ -156,10 +156,12 @@ def handle_new_conn(packet):
     log.info('Random: %s', n)
 
 
-def handle_conn_match(packet):
+def handle_conn_match(packet, p4i: p4sh_helper.P4Info):
+    names = p4i.get_member_names(packet.digest_id)
     members = packet.data[0].struct.members
-    ns = [int.from_bytes(i.bitstring, 'big') for i in members]
-    log.info('conn_match: %s', ns)
+    values = [int.from_bytes(i.bitstring, 'big') for i in members]
+    message = dict(zip(names, values))
+    log.info('conn_match: %s', message)
 
 
 def handle_digest_debug(packet):
@@ -218,7 +220,8 @@ def cmd_one(args):  # noqa: C901
         @stream_client.on('digest')
         def digest_handler(packet):
             name = p4i.get_digest_name(packet.digest_id)
-            log.info('Receive digest %s #%s', name, packet.list_id)
+            log.info('Receive digest %s #%s len=%s',
+                     name, packet.list_id, len(packet.data))
             if len(packet.data) == 1:
                 log.debug(packet.data[0])
             else:
@@ -230,7 +233,7 @@ def cmd_one(args):  # noqa: C901
             elif name == 'debug_digest_t':
                 handle_digest_debug(packet)
             elif name == 'conn_match_t':
-                handle_conn_match(packet)
+                handle_conn_match(packet, p4i)
 
         stream_client.recv_bg()
         while True:

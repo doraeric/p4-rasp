@@ -1,6 +1,6 @@
 from collections.abc import Callable
 from dataclasses import dataclass
-from functools import partial
+from functools import cache, partial
 from operator import attrgetter
 import queue
 import threading
@@ -62,6 +62,23 @@ class P4Info:
 
     def get_digest_name(self, digest_id: int) -> str:
         return self.preamble_names['Digest'].get(digest_id)
+
+    @cache
+    def get_member_names(self, name: str | int) -> list[str]:
+        if not isinstance(name, (str, int)):
+            raise TypeError('`name` must be either str or int')
+        if isinstance(name, int):
+            for names in self.preamble_names.values():
+                name = names.get(name, name)
+                if isinstance(name, str):
+                    break
+            if isinstance(name, int):
+                raise KeyError(f'preamble id {name} not found')
+        struct_types = self.pb.type_info.structs.keys()
+        if name not in struct_types:
+            raise KeyError(f'struct type "{name}" not found')
+        names = [i.name for i in self.pb.type_info.structs[name].members]
+        return names
 
 
 class UpdateEntity:
