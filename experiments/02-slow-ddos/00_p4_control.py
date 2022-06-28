@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import argparse
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from hexdump import hexdump
 import json
 import logging
@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import readline # noqa
 
+import IPython
 import p4runtime_sh.shell as sh
 
 from gen_full_netcfg import set_default_net_config
@@ -27,6 +28,8 @@ formatter = logging.Formatter(
 @dataclass
 class AppContext:
     net_config: dict
+    ip_counter: int = 0
+    ip_pair_info: dict = field(default_factory=dict)
 
 
 _app_context = AppContext(None)
@@ -141,15 +144,41 @@ def handle_digest_timestamp(packet):
     print(f'ipv4 = {ip>>24&0xff}.{ip>>16&0xff}.{ip>>8&0xff}.{ip&0xff}')
 
 
+def handle_new_ip(packet, p4i: p4sh_helper.P4Info):
+    ip_pair_info = _app_context.ip_pair_info
+    names = p4i.get_member_names(packet.digest_id)
+    members = [i.bitstring for i in packet.data[0].struct.members]
+    ips = members[:2]
+    ip_str = ['.'.join([str(i) for i in ip]) for ip in ips]
+    msg = dict(zip(
+        names, ip_str + [int.from_bytes(i, 'big') for i in members[2:]]))
+    key = tuple(sorted(ips))
+    log.info(msg)
+    if key in ip_pair_info:
+        return
+    index = _app_context.ip_counter
+    _app_context.ip_counter += 1
+    ip_pair_info[key] = index
+    # bidirectional
+    for ip1, ip2 in [ips, ips[::-1]]:
+        te = p4sh_helper.TableEntry('ingress.http_ingress.ip_pair')(
+            action='add_meta')
+        te.match["hdr.ipv4.src_addr"] = ip1
+        te.match["hdr.ipv4.dst_addr"] = ip2
+        te.action['index'] = str(index)
+        te.insert()
+    log.info('ip_pair[%s] = %s <-> %s', index, ip_str[0], ip_str[1])
+
+
 def handle_new_conn(packet):
     import random
-    members = packet.data[0].struct.members
+    members = [i.bitstring for i in packet.data[0].struct.members]
     te = p4sh_helper.TableEntry('ingress.http_ingress.tcp_conn')(
         action='add_meta')
-    te.match["hdr.ipv4.src_addr"] = members[0].bitstring
-    te.match["hdr.ipv4.dst_addr"] = members[1].bitstring
-    te.match["hdr.tcp.src_port"] = members[2].bitstring
-    te.match["hdr.tcp.dst_port"] = members[3].bitstring
+    te.match["hdr.ipv4.src_addr"] = members[0]
+    te.match["hdr.ipv4.dst_addr"] = members[1]
+    te.match["hdr.tcp.src_port"] = members[2]
+    te.match["hdr.tcp.dst_port"] = members[3]
     n = random.randint(1, 1023)
     te.action['index'] = str(n)
     te.insert()
@@ -160,8 +189,8 @@ def handle_conn_match(packet, p4i: p4sh_helper.P4Info):
     names = p4i.get_member_names(packet.digest_id)
     members = packet.data[0].struct.members
     values = [int.from_bytes(i.bitstring, 'big') for i in members]
-    message = dict(zip(names, values))
-    log.info('conn_match: %s', message)
+    msg = dict(zip(names, values))
+    log.info('conn_match: %s', msg)
 
 
 def handle_digest_debug(packet):
@@ -198,7 +227,7 @@ def cmd_one(args):  # noqa: C901
         # Insert digest
         p4i = p4sh_helper.P4Info.read_txt(P4INFO)
         enable_digest(p4i, 'timestamp_digest_t')
-        enable_digest(p4i, 'new_conn_t')
+        enable_digest(p4i, 'new_ip_t')
         enable_digest(p4i, 'conn_match_t')
         try:
             update = p4i.DigestEntry('debug_digest_t').as_update()
@@ -229,20 +258,19 @@ def cmd_one(args):  # noqa: C901
             if name == 'timestamp_digest_t':
                 handle_digest_timestamp(packet)
             elif name == 'new_conn_t':
+                # TODO: remove
                 handle_new_conn(packet)
             elif name == 'debug_digest_t':
                 handle_digest_debug(packet)
             elif name == 'conn_match_t':
                 handle_conn_match(packet, p4i)
+            elif name == 'new_ip_t':
+                handle_new_ip(packet, p4i)
 
         stream_client.recv_bg()
-        while True:
-            try:
-                cmd = input('> ').lower().strip()
-                if cmd == 'exit':
-                    break
-            except (EOFError, KeyboardInterrupt):
-                break
+
+        # Open IPython shell
+        IPython.embed(colors="neutral")
         stream_client.stop()
     sh.teardown()
 

@@ -8,15 +8,17 @@
 // onos/pipelines/basic/src/main/resources/include/int_definitions.p4
 // onos/pipelines/fabric/impl/src/main/resources/include/define.p4
 
-struct new_conn_t {
+struct new_ip_t {
+    bit<32> src_addr;
+    bit<32> dst_addr;
+}
+
+struct conn_match_t {
     bit<32> src_addr;
     bit<32> dst_addr;
     bit<16> src_port;
     bit<16> dst_port;
-}
-
-struct conn_match_t {
-    bit<10> value;
+    bit<10> index;
     bit<1> is_http_req_start;
     bit<1> is_get;
     bit<1> has_2_crlf;
@@ -25,33 +27,29 @@ struct conn_match_t {
 
 control http_ingress(
         inout headers_t hdr,
-        inout local_metadata_t local_metadata,
-        inout standard_metadata_t standard_metadata) {
+        inout local_metadata_t meta,
+        inout standard_metadata_t stdmeta) {
 
     // register<bit<32>>(1) ip_register;
     action drop() {
-        mark_to_drop(standard_metadata);
+        mark_to_drop(stdmeta);
     }
 
-    action report_new_conn() {
-        digest<new_conn_t>(1, {
+    action report_new_ip() {
+        digest<new_ip_t>(1, {
             hdr.ipv4.src_addr,
-            hdr.ipv4.dst_addr,
-            hdr.tcp.src_port,
-            hdr.tcp.dst_port
+            hdr.ipv4.dst_addr
         });
     }
 
     action add_meta(bit<10> index) {
-        local_metadata.register_index = index;
+        meta.register_index = index;
     }
 
-    table tcp_conn {
+    table ip_pair {
         key = {
             hdr.ipv4.src_addr: exact;
             hdr.ipv4.dst_addr: exact;
-            hdr.tcp.src_port: exact;
-            hdr.tcp.dst_port: exact;
         }
         actions = {
             add_meta;
@@ -60,34 +58,43 @@ control http_ingress(
     }
 
     apply {
-        // The switch only sends one digest out per packet, be careful
-        if (tcp_conn.apply().hit) {
-            if (local_metadata.app_len > 0) {
-                // For debug
-                digest<conn_match_t>(1, {
-                    local_metadata.register_index,
-                    local_metadata.is_http_req_start ? 1w1: 0,
-                    local_metadata.http_method == Method.GET ? 1w1 : 0,
-                    local_metadata.has_2_crlf ? 1w1: 0,
-                    local_metadata.http_header_content_length
-                });
+        if (hdr.tcp.isValid()) {
+            // The switch only sends one digest out per packet, be careful
+            if (ip_pair.apply().hit) {
+                if (meta.app_len > 0) {
+                    // For debug
+                    if (hdr.tcp.dst_port == 80) {
+                        digest<conn_match_t>(1, {
+                            hdr.ipv4.src_addr,
+                            hdr.ipv4.dst_addr,
+                            hdr.tcp.src_port,
+                            hdr.tcp.dst_port,
+                            meta.register_index,
+                            meta.is_http_req_start ? 1w1: 0,
+                            meta.http_method == Method.GET ? 1w1 : 0,
+                            meta.has_2_crlf ? 1w1: 0,
+                            meta.http_header_content_length
+                        });
+                    }
+                }
+            } else {
+                // non ipv4 packet will always miss without header validation
+                // for this program, tcp header is only valid when it's ipv4
+                // when it's not a ipv4 packet, digest send ipv4 info that it
+                // sent last time (?) or just hdr keeps old info?
+                report_new_ip();
             }
-        } else {
-            // report when first SYN is received
-            if (hdr.tcp.dst_port == 80 && hdr.tcp.ctrl == 6w0b000010) {
-                report_new_conn();
-            }
-        }
-        if (local_metadata.http_header_content_length > 0) {
-            if (local_metadata.http_body_len > 0 &&
-                    (bit<32>)local_metadata.http_body_len * 20 < local_metadata.http_header_content_length) {
-                // drop();
-                // ip_register.write(0, hdr.ipv4.src_addr);
-                local_metadata.bad_http = true;
-                // clone_preserving_field_list(in CloneType type, in bit<32> session, bit<8> index)
-                // session: map session to clone port from controll plane
-                // index: copy local_matadata fields marked with @field_list(1) to cloned packets
-                clone_preserving_field_list(CloneType.I2E, (bit<32>)standard_metadata.ingress_port, 1);
+            if (meta.http_header_content_length > 0) {
+                if (meta.http_body_len > 0 &&
+                        (bit<32>)meta.http_body_len * 20 < meta.http_header_content_length) {
+                    // drop();
+                    // ip_register.write(0, hdr.ipv4.src_addr);
+                    meta.bad_http = true;
+                    // clone_preserving_field_list(in CloneType type, in bit<32> session, bit<8> index)
+                    // session: map session to clone port from controll plane
+                    // index: copy local_matadata fields marked with @field_list(1) to cloned packets
+                    clone_preserving_field_list(CloneType.I2E, (bit<32>)stdmeta.ingress_port, 1);
+                }
             }
         }
         // bit<32> block_ip;
@@ -100,13 +107,13 @@ control http_ingress(
 
 control http_egress(
         inout headers_t hdr,
-        inout local_metadata_t local_metadata,
-        inout standard_metadata_t standard_metadata) {
+        inout local_metadata_t meta,
+        inout standard_metadata_t stdmeta) {
     action close_tcp() {
-        hdr.ipv4.len = hdr.ipv4.len - local_metadata.app_len;
-        truncate(standard_metadata.packet_length - (bit<32>)local_metadata.app_len);
-        local_metadata.app_len = 0;
-        local_metadata.tcp_len = hdr.ipv4.len - (bit<16>)hdr.ipv4.ihl * 4;
+        hdr.ipv4.len = hdr.ipv4.len - meta.app_len;
+        truncate(stdmeta.packet_length - (bit<32>)meta.app_len);
+        meta.app_len = 0;
+        meta.tcp_len = hdr.ipv4.len - (bit<16>)hdr.ipv4.ihl * 4;
         // FIN flag
         // hdr.tcp.ctrl = hdr.tcp.ctrl | 1;
         // hdr.tcp.ctrl = hdr.tcp.ctrl & 6w0b110111;
@@ -115,10 +122,10 @@ control http_egress(
     }
 
     apply {
-        if (local_metadata.bad_http) {
+        if (meta.bad_http) {
             close_tcp();
-            local_metadata.update_tcp_checksum = true;
-            if (standard_metadata.instance_type == BMV2_V1MODEL_INSTANCE_TYPE_INGRESS_CLONE) {
+            meta.update_tcp_checksum = true;
+            if (stdmeta.instance_type == BMV2_V1MODEL_INSTANCE_TYPE_INGRESS_CLONE) {
                 bit<48> tmp_mac = hdr.ethernet.src_addr;
                 hdr.ethernet.src_addr = hdr.ethernet.src_addr;
                 hdr.ethernet.dst_addr = tmp_mac;
