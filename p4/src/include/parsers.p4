@@ -32,7 +32,6 @@ parser parser_impl(
     bit<32> conti_content = 0;
     bit<4> crlf_start_count = 0;
     state start {
-        meta.flag_http_res = 0;
         meta.is_http_req_start = false;
         meta.bad_http = false;
         transition select(stdmeta.ingress_port) {
