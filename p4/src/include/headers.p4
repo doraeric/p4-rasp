@@ -28,7 +28,24 @@ header packet_in_header_t {
 @controller_header("packet_out")
 header packet_out_header_t {
     bit<9> egress_port;
-    bit<7> _padding;
+    // handler
+    // 0: parsing as normal
+    // 1: no parsing, forward to egress_port
+    // 2: instructions from controller
+    bit<2> handler;
+    bit<5> _padding;
+}
+
+header instruction_t {
+    bit<8> id;
+}
+
+header reg_init_t {
+    bit<2>  _pad;
+    bit<10> index;
+    bit<4>  max_short_get;
+    bit<4>  max_short_other;
+    bit<4>  max_long_other;
 }
 
 header ethernet_t {

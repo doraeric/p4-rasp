@@ -30,7 +30,13 @@ control http_ingress(
         inout local_metadata_t meta,
         inout standard_metadata_t stdmeta) {
 
-    // register<bit<32>>(1) ip_register;
+    register<bit<4>>(1024) max_short_gets;
+    register<bit<4>>(1024) max_short_others;
+    register<bit<4>>(1024) max_long_others;
+    register<bit<4>>(1024) n_short_gets;
+    register<bit<4>>(1024) n_short_others;
+    register<bit<4>>(1024) n_long_others;
+
     action drop() {
         mark_to_drop(stdmeta);
     }
@@ -76,6 +82,9 @@ control http_ingress(
                             meta.http_header_content_length
                         });
                     }
+                    bit<32> index = (bit<32>)meta.register_index;
+                    // bit<4> max_short_get;
+                    // max_short_gets.read(max_short_get, index);
                 }
             } else {
                 // non ipv4 packet will always miss without header validation
@@ -102,6 +111,17 @@ control http_ingress(
         // if (hdr.ipv4.src_addr == block_ip) {
         //     drop();
         // }
+        if (hdr.instruction.isValid()) {
+            if (hdr.instruction.id == 1) {
+                bit<32> index = (bit<32>)hdr.reg_init.index;
+                max_short_gets.write(index, hdr.reg_init.max_short_get);
+                max_short_others.write(index, hdr.reg_init.max_short_other);
+                max_long_others.write(index, hdr.reg_init.max_long_other);
+                n_short_gets.write(index, 0);
+                n_short_others.write(index, 0);
+                n_long_others.write(index, 0);
+            }
+        }
     }
 }
 

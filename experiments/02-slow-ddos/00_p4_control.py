@@ -146,19 +146,24 @@ def handle_digest_timestamp(packet):
 
 def handle_new_ip(packet, p4i: p4sh_helper.P4Info):
     ip_pair_info = _app_context.ip_pair_info
-    names = p4i.get_member_names(packet.digest_id)
     members = [i.bitstring for i in packet.data[0].struct.members]
     ips = members[:2]
     ip_str = ['.'.join([str(i) for i in ip]) for ip in ips]
-    msg = dict(zip(
-        names, ip_str + [int.from_bytes(i, 'big') for i in members[2:]]))
+    # names = p4i.get_member_names(packet.digest_id)
+    # msg = dict(zip(
+    #     names, ip_str + [int.from_bytes(i, 'big') for i in members[2:]]))
+    # log.info(msg)
     key = tuple(sorted(ips))
-    log.info(msg)
     if key in ip_pair_info:
         return
     index = _app_context.ip_counter
     _app_context.ip_counter += 1
     ip_pair_info[key] = index
+    # Initialize ip pair register
+    # instruction, (index, max_short_get, max_short_other, max_long_other)
+    payload = (index << 12) + (8 << 8) + (8 << 4) + 4
+    p = sh.PacketOut(b'\1' + payload.to_bytes(3, 'big'))
+    p.metadata['handler'] = '2'
     # bidirectional
     for ip1, ip2 in [ips, ips[::-1]]:
         te = p4sh_helper.TableEntry('ingress.http_ingress.ip_pair')(
@@ -167,7 +172,8 @@ def handle_new_ip(packet, p4i: p4sh_helper.P4Info):
         te.match["hdr.ipv4.dst_addr"] = ip2
         te.action['index'] = str(index)
         te.insert()
-    log.info('ip_pair[%s] = %s <-> %s', index, ip_str[0], ip_str[1])
+    p.send()
+    log.info('> ip_pair[%s] = %s <-> %s', index, ip_str[0], ip_str[1])
 
 
 def handle_new_conn(packet):
@@ -186,11 +192,12 @@ def handle_new_conn(packet):
 
 
 def handle_conn_match(packet, p4i: p4sh_helper.P4Info):
-    names = p4i.get_member_names(packet.digest_id)
-    members = packet.data[0].struct.members
-    values = [int.from_bytes(i.bitstring, 'big') for i in members]
-    msg = dict(zip(names, values))
-    log.info('conn_match: %s', msg)
+    # names = p4i.get_member_names(packet.digest_id)
+    # members = packet.data[0].struct.members
+    # values = [int.from_bytes(i.bitstring, 'big') for i in members]
+    # msg = dict(zip(names, values))
+    # log.info('conn_match: %s', msg)
+    pass
 
 
 def handle_digest_debug(packet):
@@ -249,10 +256,16 @@ def cmd_one(args):  # noqa: C901
         @stream_client.on('digest')
         def digest_handler(packet):
             name = p4i.get_digest_name(packet.digest_id)
-            log.info('Receive digest %s #%s len=%s',
+            log.info('< Receive digest %s #%s len=%s',
                      name, packet.list_id, len(packet.data))
             if len(packet.data) == 1:
-                log.debug(packet.data[0])
+                names = p4i.get_member_names(packet.digest_id)
+                members = [i.bitstring for i in packet.data[0].struct.members]
+                msg = {k: int.from_bytes(v, 'big') if not k.endswith('_addr')
+                       else ('.'.join(str(i) for i in v) if len(v) == 4
+                             else ':'.join(f'{i:02x}' for i in v))
+                       for k, v in zip(names, members)}
+                log.info('< %s', msg)
             else:
                 log.debug(packet)
             if name == 'timestamp_digest_t':

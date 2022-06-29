@@ -23,10 +23,17 @@
 control packetio_ingress(inout headers_t hdr,
                          inout standard_metadata_t standard_metadata) {
     apply {
-        if (standard_metadata.ingress_port == CPU_PORT) {
-            standard_metadata.egress_spec = hdr.packet_out.egress_port;
-            hdr.packet_out.setInvalid();
-            exit;
+        if (hdr.packet_out.isValid()) {
+            if (hdr.packet_out.handler == 1) {
+                // No need for ingress processing, straight to egress.
+                standard_metadata.egress_spec = hdr.packet_out.egress_port;
+                hdr.packet_out.setInvalid();
+                exit;
+            }
+            if (hdr.packet_out.handler == 0) {
+                standard_metadata.egress_spec = hdr.packet_out.egress_port;
+                hdr.packet_out.setInvalid();
+            }
         }
     }
 }
