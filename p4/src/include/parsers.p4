@@ -360,7 +360,7 @@ parser parser_impl(
         packet.extract(hdr.http_buffer.next);
         packet.extract(hdr.http_buffer.next);
         meta.has_2_crlf = true;
-        meta.http_body_len = meta.app_len - (bit<16>)hdr.http_buffer.lastIndex;
+        meta.http_body_len = meta.app_len - (bit<16>)hdr.http_buffer.lastIndex - 1;
         transition accept;
     }
 
