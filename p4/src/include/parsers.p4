@@ -53,12 +53,22 @@ parser parser_impl(
         packet.extract(hdr.instruction);
         transition select(hdr.instruction.id) {
             1: parse_reg_init;
+            2: parse_reg_read;
+            3: parse_reg_decr;
             default: accept;
         }
     }
 
     state parse_reg_init {
         packet.extract(hdr.reg_init);
+        transition accept;
+    }
+    state parse_reg_read {
+        packet.extract(hdr.reg_read);
+        transition accept;
+    }
+    state parse_reg_decr {
+        packet.extract(hdr.reg_decrease);
         transition accept;
     }
 

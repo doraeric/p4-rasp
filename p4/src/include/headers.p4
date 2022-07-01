@@ -48,6 +48,17 @@ header reg_init_t {
     bit<4>  max_long_other;
 }
 
+header reg_read_t {
+    bit<6>  _pad;
+    bit<10> index;
+}
+
+header reg_decrease_t {
+    bit<2>  _pad;
+    bit<10> index;
+    bit<4>  http_type;
+}
+
 header ethernet_t {
     bit<48> dst_addr;
     bit<48> src_addr;

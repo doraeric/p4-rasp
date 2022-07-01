@@ -8,11 +8,6 @@
 // onos/pipelines/basic/src/main/resources/include/int_definitions.p4
 // onos/pipelines/fabric/impl/src/main/resources/include/define.p4
 
-struct new_ip_t {
-    bit<32> src_addr;
-    bit<32> dst_addr;
-}
-
 struct conn_match_t {
     bit<32> src_addr;
     bit<32> dst_addr;
@@ -23,6 +18,44 @@ struct conn_match_t {
     bit<1> is_get;
     bit<1> has_2_crlf;
     bit<32> content_length;
+    bit<16> http_body_len;
+    bit<16> app_len;
+}
+
+struct registers_t {
+    bit<10> index;
+    bit<4> max_short_get;
+    bit<4> max_short_other;
+    bit<4> max_long_other;
+    bit<4> n_short_get;
+    bit<4> n_short_other;
+    bit<4> n_long_other;
+}
+
+struct new_ip_t {
+    bit<32> src_addr;
+    bit<32> dst_addr;
+}
+
+struct fragment_t {
+    bit<32> src_addr;
+    bit<32> dst_addr;
+    bit<16> src_port;
+    bit<16> dst_port;
+    bit<16> app_len;
+    bit<32> content_length;
+    bit<1> is_req_start;
+    bit<1> is_get;
+    bit<1> has_2_crlf;
+    bit<1> is_long;
+}
+
+struct http_res_t {
+    bit<32> src_addr;
+    bit<32> dst_addr;
+    bit<16> src_port;
+    bit<16> dst_port;
+    bit<8> status_code;
 }
 
 control http_ingress(
@@ -36,9 +69,46 @@ control http_ingress(
     register<bit<4>>(1024) n_short_gets;
     register<bit<4>>(1024) n_short_others;
     register<bit<4>>(1024) n_long_others;
+    bool is_long;
 
     action drop() {
         mark_to_drop(stdmeta);
+    }
+
+    action report_conn_match() {
+        digest<conn_match_t>(1, {
+            hdr.ipv4.src_addr,
+            hdr.ipv4.dst_addr,
+            hdr.tcp.src_port,
+            hdr.tcp.dst_port,
+            meta.register_index,
+            meta.is_http_req_start ? 1w1: 0,
+            meta.http_method == Method.GET ? 1w1 : 0,
+            meta.has_2_crlf ? 1w1: 0,
+            meta.http_header_content_length,
+            meta.http_body_len,
+            meta.app_len
+        });
+    }
+
+    action report_registers() {
+        bit<32> index = (bit<32>)hdr.reg_read.index;
+        bit<4> v1;
+        bit<4> v2;
+        bit<4> v3;
+        bit<4> v4;
+        bit<4> v5;
+        bit<4> v6;
+        max_short_gets.read(v1, index);
+        max_short_others.read(v2, index);
+        max_long_others.read(v3, index);
+        n_short_gets.read(v4, index);
+        n_short_others.read(v5, index);
+        n_long_others.read(v6, index);
+        digest<registers_t>(1, {
+            hdr.reg_read.index,
+            v1, v2, v3, v4, v5, v6
+        });
     }
 
     action report_new_ip() {
@@ -48,8 +118,41 @@ control http_ingress(
         });
     }
 
+    action report_fragment() {
+        digest<fragment_t>(1, {
+            hdr.ipv4.src_addr,
+            hdr.ipv4.dst_addr,
+            hdr.tcp.src_port,
+            hdr.tcp.dst_port,
+            meta.app_len,
+            meta.http_header_content_length,
+            meta.is_http_req_start ? 1w1: 0,
+            meta.http_method == Method.GET ? 1w1 : 0,
+            meta.has_2_crlf ? 1w1: 0,
+            is_long ? 1w1: 0
+        });
+    }
+
+    action report_http_res() {
+        digest<http_res_t>(1, {
+            hdr.ipv4.src_addr,
+            hdr.ipv4.dst_addr,
+            hdr.tcp.src_port,
+            hdr.tcp.dst_port,
+            (bit<8>)meta.http_status
+        });
+    }
+
     action add_meta(bit<10> index) {
         meta.register_index = index;
+    }
+
+    action mark_bad_http_and_clone() {
+        meta.bad_http = true;
+        // clone_preserving_field_list(in CloneType type, in bit<32> session, bit<8> index)
+        // session: map session to clone port from controll plane
+        // index: copy local_matadata fields marked with @field_list(1) to cloned packets
+        clone_preserving_field_list(CloneType.I2E, (bit<32>)stdmeta.ingress_port, 1);
     }
 
     table ip_pair {
@@ -68,23 +171,66 @@ control http_ingress(
             // The switch only sends one digest out per packet, be careful
             if (ip_pair.apply().hit) {
                 if (meta.app_len > 0) {
-                    // For debug
                     if (hdr.tcp.dst_port == 80) {
-                        digest<conn_match_t>(1, {
-                            hdr.ipv4.src_addr,
-                            hdr.ipv4.dst_addr,
-                            hdr.tcp.src_port,
-                            hdr.tcp.dst_port,
-                            meta.register_index,
-                            meta.is_http_req_start ? 1w1: 0,
-                            meta.http_method == Method.GET ? 1w1 : 0,
-                            meta.has_2_crlf ? 1w1: 0,
-                            meta.http_header_content_length
-                        });
+                        // For debug
+                        // report_conn_match();
+                        if (meta.is_http_req_start) {
+                            bool do_report_fragment = false;
+                            if ((bit<32>)meta.http_body_len ==
+                                meta.http_header_content_length && meta.has_2_crlf
+                            ) {
+                                // new complete req
+                                return;
+                            } else {
+                                // new fragmented req
+                                bit<32> index = (bit<32>)meta.register_index;
+                                is_long = (bit<32>)meta.http_body_len * 20
+                                    < meta.http_header_content_length;
+                                bit<4> max_conn;
+                                bit<4> n_conn;
+                                if (meta.http_method == Method.GET) {
+                                    // fragmented short GET
+                                    max_short_gets.read(max_conn, index);
+                                    n_short_gets.read(n_conn, index);
+                                    if (n_conn >= max_conn) {
+                                        mark_bad_http_and_clone();
+                                    } else {
+                                        n_short_gets.write(index, n_conn + 1);
+                                        do_report_fragment = true;
+                                    }
+                                } else if (!is_long) {
+                                    // fragmented short non-GET
+                                    max_short_others.read(max_conn, index);
+                                    n_short_others.read(n_conn, index);
+                                    if (n_conn >= max_conn) {
+                                        mark_bad_http_and_clone();
+                                    } else {
+                                        n_short_others.write(index, n_conn + 1);
+                                        do_report_fragment = true;
+                                    }
+                                } else {
+                                    // fragmented long non-GET
+                                    max_long_others.read(max_conn, index);
+                                    n_long_others.read(n_conn, index);
+                                    if (n_conn >= max_conn) {
+                                        mark_bad_http_and_clone();
+                                    } else {
+                                        n_long_others.write(index, n_conn + 1);
+                                        do_report_fragment = true;
+                                    }
+                                }
+                                if (do_report_fragment) {
+                                    // calling digest in different if condition
+                                    // delays sending digest
+                                    report_fragment();
+                                }
+                            }
+                        }
+                    } else if (hdr.tcp.src_port == 80) {
+                        if (meta.is_http_res_start) {
+                            report_http_res();
+                        }
                     }
-                    bit<32> index = (bit<32>)meta.register_index;
-                    // bit<4> max_short_get;
-                    // max_short_gets.read(max_short_get, index);
                 }
             } else {
                 // non ipv4 packet will always miss without header validation
@@ -93,18 +239,14 @@ control http_ingress(
                 // sent last time (?) or just hdr keeps old info?
                 report_new_ip();
             }
-            if (meta.http_header_content_length > 0) {
-                if (meta.http_body_len > 0 &&
-                        (bit<32>)meta.http_body_len * 20 < meta.http_header_content_length) {
-                    // drop();
-                    // ip_register.write(0, hdr.ipv4.src_addr);
-                    meta.bad_http = true;
-                    // clone_preserving_field_list(in CloneType type, in bit<32> session, bit<8> index)
-                    // session: map session to clone port from controll plane
-                    // index: copy local_matadata fields marked with @field_list(1) to cloned packets
-                    clone_preserving_field_list(CloneType.I2E, (bit<32>)stdmeta.ingress_port, 1);
-                }
-            }
+            // if (meta.http_header_content_length > 0) {
+            //     if (meta.http_body_len > 0 &&
+            //             (bit<32>)meta.http_body_len * 20 < meta.http_header_content_length) {
+            //         // drop();
+            //         // ip_register.write(0, hdr.ipv4.src_addr);
+            //         mark_bad_http_and_clone();
+            //     }
+            // }
         }
         // bit<32> block_ip;
         // ip_register.read(block_ip, 0);
@@ -120,6 +262,21 @@ control http_ingress(
                 n_short_gets.write(index, 0);
                 n_short_others.write(index, 0);
                 n_long_others.write(index, 0);
+            } else if (hdr.instruction.id == 2) {
+                report_registers();
+            } else if (hdr.instruction.id == 3) {
+                bit<32> index = (bit<32>)hdr.reg_decrease.index;
+                bit<4> value;
+                if (hdr.reg_decrease.http_type == 0) {
+                    n_short_gets.read(value, index);
+                    n_short_gets.write(index, value - 1);
+                } else if (hdr.reg_decrease.http_type == 1) {
+                    n_short_others.read(value, index);
+                    n_short_others.write(index, value - 1);
+                } else if (hdr.reg_decrease.http_type == 2) {
+                    n_long_others.read(value, index);
+                    n_long_others.write(index, value - 1);
+                }
             }
         }
     }

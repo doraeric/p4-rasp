@@ -21,6 +21,8 @@ struct headers_t {
     packet_in_header_t packet_in;
     instruction_t instruction;
     reg_init_t reg_init;
+    reg_read_t reg_read;
+    reg_decrease_t reg_decrease;
     ethernet_t ethernet;
     arp_t arp;
     ipv4_t ipv4;

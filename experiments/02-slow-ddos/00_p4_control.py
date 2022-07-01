@@ -26,10 +26,22 @@ formatter = logging.Formatter(
 
 
 @dataclass
+class IpPairInfo:
+    index: int
+    max_short_get: int = 8
+    max_short_other: int = 8
+    max_long_other: int = 4
+    n_short_get: int = 0
+    n_short_other: int = 0
+    n_long_other: int = 0
+
+
+@dataclass
 class AppContext:
     net_config: dict
     ip_counter: int = 0
-    ip_pair_info: dict = field(default_factory=dict)
+    ip_pair_info: dict[tuple, IpPairInfo] = field(default_factory=dict)
+    conns: dict = field(default_factory=dict)
 
 
 _app_context = AppContext(None)
@@ -136,6 +148,16 @@ def setup_one_switch(switch: str) -> None:
         clone_entry.insert()
 
 
+def to_tcp_key(members: list[bytes]):
+    """Convert bytes to tcp_key for _app_context.conns"""
+    assert len(members) == 4
+    assert all(len(i) == 4 for i in members[:2])
+    ip_str = ['.'.join([str(i) for i in ip]) for ip in members[:2]]
+    tcp_ports = [int.from_bytes(i, 'big') for i in members[2:]]
+    tcp_key = tuple(sorted(zip(ip_str, tcp_ports)))
+    return tcp_key
+
+
 def handle_digest_timestamp(packet):
     members = packet.data[0].struct.members
     ts = int.from_bytes(members[0].bitstring, 'big')
@@ -144,24 +166,29 @@ def handle_digest_timestamp(packet):
     print(f'ipv4 = {ip>>24&0xff}.{ip>>16&0xff}.{ip>>8&0xff}.{ip&0xff}')
 
 
+def req_register_read(index: int = 0):
+    payload = index
+    p = sh.PacketOut(b'\2' + payload.to_bytes(2, 'big'))
+    p.metadata['handler'] = '2'
+    p.send()
+
+
 def handle_new_ip(packet, p4i: p4sh_helper.P4Info):
     ip_pair_info = _app_context.ip_pair_info
     members = [i.bitstring for i in packet.data[0].struct.members]
     ips = members[:2]
     ip_str = ['.'.join([str(i) for i in ip]) for ip in ips]
-    # names = p4i.get_member_names(packet.digest_id)
-    # msg = dict(zip(
-    #     names, ip_str + [int.from_bytes(i, 'big') for i in members[2:]]))
-    # log.info(msg)
     key = tuple(sorted(ips))
     if key in ip_pair_info:
         return
     index = _app_context.ip_counter
     _app_context.ip_counter += 1
-    ip_pair_info[key] = index
+    ip_pair_info[key] = IpPairInfo(index=index)
+    info = ip_pair_info[key]
     # Initialize ip pair register
     # instruction, (index, max_short_get, max_short_other, max_long_other)
-    payload = (index << 12) + (8 << 8) + (8 << 4) + 4
+    payload = ((index << 12) + (info.max_short_get << 8) +
+               (info.max_short_other << 4) + info.max_long_other)
     p = sh.PacketOut(b'\1' + payload.to_bytes(3, 'big'))
     p.metadata['handler'] = '2'
     # bidirectional
@@ -174,6 +201,63 @@ def handle_new_ip(packet, p4i: p4sh_helper.P4Info):
         te.insert()
     p.send()
     log.info('> ip_pair[%s] = %s <-> %s', index, ip_str[0], ip_str[1])
+
+
+def handle_fragment(packet, msg: dict):
+    members = [i.bitstring for i in packet.data[0].struct.members]
+    conns = _app_context.conns
+    tcp_key = to_tcp_key(members[:4])
+    ip_key = tuple(sorted(members[:2]))
+    msg = msg.copy()
+    for k in ['src_addr', 'dst_addr', 'src_port', 'dst_port']:
+        msg.pop(k)
+    for k in ['is_req_start', 'is_get', 'has_2_crlf', 'is_long']:
+        msg[k] = msg[k] == 1
+    if msg['is_req_start']:
+        conns[tcp_key] = msg
+        conn = conns[tcp_key]
+        ip_pair_info = _app_context.ip_pair_info[ip_key]
+        http_type = 0 if conn['is_get'] else 1 if not conn['is_long'] else 2
+        if http_type == 0:
+            ip_pair_info.n_short_get += 1
+        elif http_type == 1:
+            ip_pair_info.n_short_other += 1
+        else:
+            ip_pair_info.n_long_other += 1
+        return
+    if tcp_key not in conns:
+        return
+    conn = conns[tcp_key]
+    if conn['has_2_crlf']:
+        return
+    if not conn['is_get'] and msg['content_length'] > 0:
+        conn['content_length'] = msg['content_length']
+    if msg['has_2_crlf']:
+        conn['has_2_crlf'] = True
+
+
+def handle_http_res(packet):
+    members = [i.bitstring for i in packet.data[0].struct.members]
+    tcp_key = to_tcp_key(members[:4])
+    if tcp_key not in _app_context.conns:
+        return
+    conn = _app_context.conns[tcp_key]
+    ip_key = tuple(sorted(members[:2]))
+    ip_pair_info = _app_context.ip_pair_info[ip_key]
+    index = ip_pair_info.index
+    http_type = 0 if conn['is_get'] else 1 if not conn['is_long'] else 2
+    if http_type == 0:
+        ip_pair_info.n_short_get -= 1
+    elif http_type == 1:
+        ip_pair_info.n_short_other -= 1
+    else:
+        ip_pair_info.n_long_other -= 1
+    payload = (index << 4) + http_type
+    p = sh.PacketOut(b'\3' + payload.to_bytes(2, 'big'))
+    p.metadata['handler'] = '2'
+    p.send()
+    log.info('> reg_decrease index=%s, http_type=%s', index, http_type)
+    del _app_context.conns[tcp_key]
 
 
 def handle_new_conn(packet):
@@ -233,14 +317,8 @@ def cmd_one(args):  # noqa: C901
 
         # Insert digest
         p4i = p4sh_helper.P4Info.read_txt(P4INFO)
-        enable_digest(p4i, 'timestamp_digest_t')
-        enable_digest(p4i, 'new_ip_t')
-        enable_digest(p4i, 'conn_match_t')
-        try:
-            update = p4i.DigestEntry('debug_digest_t').as_update()
-            sh.client.write_update(update)
-        except KeyError:
-            log.info('No debug digest in p4')
+        for digest_name in p4i.preamble_names['Digest'].values():
+            enable_digest(p4i, digest_name)
 
         # Listening
         print('Listening on controller for switch "{}"'.format(switch))
@@ -279,6 +357,10 @@ def cmd_one(args):  # noqa: C901
                 handle_conn_match(packet, p4i)
             elif name == 'new_ip_t':
                 handle_new_ip(packet, p4i)
+            elif name == 'fragment_t':
+                handle_fragment(packet, msg)
+            elif name == 'http_res_t':
+                handle_http_res(packet)
 
         stream_client.recv_bg()
 
