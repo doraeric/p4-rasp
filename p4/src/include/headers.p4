@@ -53,10 +53,15 @@ header reg_read_t {
     bit<10> index;
 }
 
-header reg_decrease_t {
-    bit<2>  _pad;
-    bit<10> index;
-    bit<4>  http_type;
+header reg_update_cnt_t {
+    bit<8> count;
+}
+
+header reg_update_t {
+    bit<32> index;
+    bit<8>  id2; // register id used in p4 code
+    bit<8>  op; // operator
+    bit<8>  value;
 }
 
 header ethernet_t {

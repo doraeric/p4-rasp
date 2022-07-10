@@ -54,7 +54,7 @@ parser parser_impl(
         transition select(hdr.instruction.id) {
             1: parse_reg_init;
             2: parse_reg_read;
-            3: parse_reg_decr;
+            3: parse_reg_update_cnt;
             default: accept;
         }
     }
@@ -67,9 +67,17 @@ parser parser_impl(
         packet.extract(hdr.reg_read);
         transition accept;
     }
-    state parse_reg_decr {
-        packet.extract(hdr.reg_decrease);
-        transition accept;
+    state parse_reg_update_cnt {
+        packet.extract(hdr.reg_cnt);
+        transition parse_reg_update;
+    }
+    state parse_reg_update {
+        packet.extract(hdr.reg_update.next);
+        bit<1> loop = (bit<32>)hdr.reg_cnt.count-1 > hdr.reg_update.lastIndex ? 1w1 : 0;
+        transition select(loop) {
+            1: parse_reg_update;
+            default: accept;
+        }
     }
 
     state parse_ethernet {

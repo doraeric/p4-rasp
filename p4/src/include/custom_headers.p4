@@ -22,7 +22,8 @@ struct headers_t {
     instruction_t instruction;
     reg_init_t reg_init;
     reg_read_t reg_read;
-    reg_decrease_t reg_decrease;
+    reg_update_cnt_t reg_cnt;
+    reg_update_t[8] reg_update;
     ethernet_t ethernet;
     arp_t arp;
     ipv4_t ipv4;

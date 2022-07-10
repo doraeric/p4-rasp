@@ -56,6 +56,8 @@ const bit<8> CHAR_CR = 0x0d;
 const bit<8> CHAR_LF = 0x0a;
 const bit<8> CHAR_COLON = 0x3a;
 const bit<8> CHAR_DASH = 0x2d;
+const bit<8> CHAR_MINUS = 0x2d;
+const bit<8> CHAR_PLUS = 0x2b;
 
 // alphabet
 const bit<8> CHAR_A = 0x41;

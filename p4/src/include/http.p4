@@ -155,6 +155,39 @@ control http_ingress(
         clone_preserving_field_list(CloneType.I2E, (bit<32>)stdmeta.ingress_port, 1);
     }
 
+// action can't conditional read/write registers, so use macro
+#define update_register(update_index) if (hdr.reg_cnt.count > update_index) { \
+    index = hdr.reg_update[update_index].index; \
+    reg_id2 = hdr.reg_update[update_index].id2; \
+    op = hdr.reg_update[update_index].op; \
+    update = (bit<4>)hdr.reg_update[update_index].value; \
+    if (reg_id2 == 0) { \
+        n_short_gets.read(value, index); \
+        n_short_gets.write(index, op == CHAR_PLUS ? \
+            (value + update) : (value - update)); \
+    } else if (reg_id2 == 1) { \
+        n_short_others.read(value, index); \
+        n_short_others.write(index, op == CHAR_PLUS ? \
+            (value + update) : (value - update)); \
+    } else if (reg_id2 == 2) { \
+        n_long_others.read(value, index); \
+        n_long_others.write(index, op == CHAR_PLUS ? \
+            (value + update) : (value - update)); \
+    } else if (reg_id2 == 3) { \
+        max_short_gets.read(value, index); \
+        max_short_gets.write(index, op == CHAR_PLUS ? \
+            (value + update) : (value - update)); \
+    } else if (reg_id2 == 4) { \
+        max_short_others.read(value, index); \
+        max_short_others.write(index, op == CHAR_PLUS ? \
+            (value + update) : (value - update)); \
+    } else if (reg_id2 == 5) { \
+        max_long_others.read(value, index); \
+        max_long_others.write(index, op == CHAR_PLUS ? \
+            (value + update) : (value - update)); \
+    } \
+}
+
     table ip_pair {
         key = {
             hdr.ipv4.src_addr: exact;
@@ -265,18 +298,19 @@ control http_ingress(
             } else if (hdr.instruction.id == 2) {
                 report_registers();
             } else if (hdr.instruction.id == 3) {
-                bit<32> index = (bit<32>)hdr.reg_decrease.index;
+                bit<32> index;
                 bit<4> value;
-                if (hdr.reg_decrease.http_type == 0) {
-                    n_short_gets.read(value, index);
-                    n_short_gets.write(index, value - 1);
-                } else if (hdr.reg_decrease.http_type == 1) {
-                    n_short_others.read(value, index);
-                    n_short_others.write(index, value - 1);
-                } else if (hdr.reg_decrease.http_type == 2) {
-                    n_long_others.read(value, index);
-                    n_long_others.write(index, value - 1);
-                }
+                bit<8> reg_id2;
+                bit<8> op;
+                bit<4> update;
+                update_register(0)
+                update_register(1)
+                update_register(2)
+                update_register(3)
+                update_register(4)
+                update_register(5)
+                update_register(6)
+                update_register(7)
             }
         }
     }

@@ -8,6 +8,8 @@ import logging.handlers
 import os
 from pathlib import Path
 import readline # noqa
+import time
+import threading
 
 import IPython
 import p4runtime_sh.shell as sh
@@ -23,17 +25,18 @@ formatter = logging.Formatter(
      '%(filename)s:%(lineno)d: %(message)s'),
     datefmt='%H:%M:%S',
 )
+default_max_conns = [8, 8, 4]
+default_min_conns = [2, 2, 1]
 
 
 @dataclass
 class IpPairInfo:
+    # the order is: short_get, short_other, long_other
     index: int
-    max_short_get: int = 8
-    max_short_other: int = 8
-    max_long_other: int = 4
-    n_short_get: int = 0
-    n_short_other: int = 0
-    n_long_other: int = 0
+    max_conns: list[int] = field(default_factory=lambda: [8, 8, 4])
+    n_conns: list[int] = field(default_factory=lambda: [0, 0, 0])
+    accu_error: list[int] = field(default_factory=lambda: [0, 0, 0])
+    error_ts: list[int] = field(default_factory=lambda: [0, 0, 0])
 
 
 @dataclass
@@ -187,8 +190,8 @@ def handle_new_ip(packet, p4i: p4sh_helper.P4Info):
     info = ip_pair_info[key]
     # Initialize ip pair register
     # instruction, (index, max_short_get, max_short_other, max_long_other)
-    payload = ((index << 12) + (info.max_short_get << 8) +
-               (info.max_short_other << 4) + info.max_long_other)
+    payload = ((index << 12) + (info.max_conns[0] << 8) +
+               (info.max_conns[1] << 4) + info.max_conns[2])
     p = sh.PacketOut(b'\1' + payload.to_bytes(3, 'big'))
     p.metadata['handler'] = '2'
     # bidirectional
@@ -218,12 +221,7 @@ def handle_fragment(packet, msg: dict):
         conn = conns[tcp_key]
         ip_pair_info = _app_context.ip_pair_info[ip_key]
         http_type = 0 if conn['is_get'] else 1 if not conn['is_long'] else 2
-        if http_type == 0:
-            ip_pair_info.n_short_get += 1
-        elif http_type == 1:
-            ip_pair_info.n_short_other += 1
-        else:
-            ip_pair_info.n_long_other += 1
+        ip_pair_info.n_conns[http_type] += 1
         return
     if tcp_key not in conns:
         return
@@ -236,7 +234,13 @@ def handle_fragment(packet, msg: dict):
         conn['has_2_crlf'] = True
 
 
-def handle_http_res(packet):
+def reg_update(index: int, id2: int, op: str, value: int) -> bytes:
+    payload = (index << 24) + (id2 << 16) + (ord(op) << 8) + value
+    payload = payload.to_bytes(7, 'big')
+    return payload
+
+
+def handle_http_res(packet, msg: dict):
     members = [i.bitstring for i in packet.data[0].struct.members]
     tcp_key = to_tcp_key(members[:4])
     if tcp_key not in _app_context.conns:
@@ -245,18 +249,28 @@ def handle_http_res(packet):
     ip_key = tuple(sorted(members[:2]))
     ip_pair_info = _app_context.ip_pair_info[ip_key]
     index = ip_pair_info.index
-    http_type = 0 if conn['is_get'] else 1 if not conn['is_long'] else 2
-    if http_type == 0:
-        ip_pair_info.n_short_get -= 1
-    elif http_type == 1:
-        ip_pair_info.n_short_other -= 1
-    else:
-        ip_pair_info.n_long_other -= 1
-    payload = (index << 4) + http_type
-    p = sh.PacketOut(b'\3' + payload.to_bytes(2, 'big'))
+    id2 = 0 if conn['is_get'] else 1 if not conn['is_long'] else 2
+    ip_pair_info.n_conns[id2] -= 1
+    if msg['status_code'] == 4:
+        ip_pair_info.accu_error[id2] += 1
+        ip_pair_info.error_ts[id2] = int(time.time())
+    updates = []
+    if ip_pair_info.accu_error[id2] >= 3:
+        ip_pair_info.accu_error[id2] -= 3
+        if ip_pair_info.accu_error[id2] < 0:
+            ip_pair_info.accu_error[id2] = 0
+        if ip_pair_info.max_conns[id2] > default_min_conns[id2]:
+            ip_pair_info.max_conns[id2] -= 1
+            updates.append(reg_update(index, id2+3, '-', 1))
+            log.info(
+                '> reg_update(index=%s, id2=%s, op=%s, value=%s)',
+                index, id2+3, '-', 1
+            )
+    updates.append(reg_update(index, id2, '-', 1))
+    p = sh.PacketOut(b'\3%c' % len(updates) + b''.join(updates))
     p.metadata['handler'] = '2'
     p.send()
-    log.info('> reg_decrease index=%s, http_type=%s', index, http_type)
+    log.info('> reg_decrease index=%s, id2=%s', index, id2)
     del _app_context.conns[tcp_key]
 
 
@@ -293,6 +307,41 @@ def enable_digest(p4i: p4sh_helper.P4Info, name: str) -> None:
     sh.client.write_update(update)
     log.info('Enable digest: %s', name)
 
+
+class ClockThread(threading.Thread):
+    def __init__(self):
+        super().__init__()
+        self.pill2kill = threading.Event()
+
+    def run(self):
+        while True:
+            now = int(time.time())
+            for info in _app_context.ip_pair_info.values():
+                updates = []
+                for i in range(3):
+                    info.accu_error[i] = 0
+                    if (info.max_conns[i] < default_max_conns[i] and
+                            now - info.error_ts[i] > 60):
+                        info.max_conns[i] += 1
+                        updates.append(reg_update(info.index, i+3, '+', 1))
+                        log.info(
+                            '> reg_update(index=%s, id2=%s, op=%s, value=%s)',
+                            info.index, i+3, '+', 1
+                        )
+                if len(updates) > 0:
+                    p = sh.PacketOut(b'\3%c' % len(updates)+b''.join(updates))
+                    p.metadata['handler'] = '2'
+                    p.send()
+            while time.time() - now < 60:
+                if self.pill2kill.is_set():
+                    break
+                time.sleep(1)
+            if self.pill2kill.is_set():
+                break
+
+    def stop(self):
+        self.pill2kill.set()
+
 def cmd_one(args):  # noqa: C901
     """Setup one switch and sniff.
 
@@ -323,6 +372,9 @@ def cmd_one(args):  # noqa: C901
         # Listening
         print('Listening on controller for switch "{}"'.format(switch))
         stream_client = p4sh_helper.StreamClient(sh.client)
+
+        time_thread = ClockThread()
+        time_thread.start()
 
         @stream_client.on('packet')
         def packet_in_handler(packet):
@@ -360,13 +412,14 @@ def cmd_one(args):  # noqa: C901
             elif name == 'fragment_t':
                 handle_fragment(packet, msg)
             elif name == 'http_res_t':
-                handle_http_res(packet)
+                handle_http_res(packet, msg)
 
         stream_client.recv_bg()
 
         # Open IPython shell
         IPython.embed(colors="neutral")
         stream_client.stop()
+        time_thread.stop()
     sh.teardown()
 
 
