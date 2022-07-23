@@ -15,7 +15,8 @@ import IPython
 import p4runtime_sh.shell as sh
 
 from gen_full_netcfg import set_default_net_config
-from utils import gen_pill, p4sh_helper
+from utils import p4sh_helper
+from utils.threading import EventThread
 
 log = logging.getLogger('p4_control')
 # Do not propagate to root log
@@ -327,10 +328,7 @@ def clock(pill: threading.Event):
                 p = sh.PacketOut(b'\3%c' % len(updates)+b''.join(updates))
                 p.metadata['handler'] = '2'
                 p.send()
-        while time.time() - now < 60:
-            if pill.is_set():
-                break
-            time.sleep(1)
+        pill.wait(60)
         if pill.is_set():
             break
 
@@ -366,9 +364,8 @@ def cmd_one(args):  # noqa: C901
         print('Listening on controller for switch "{}"'.format(switch))
         stream_client = p4sh_helper.StreamClient(sh.client)
 
-        pill, add_pill = gen_pill()
-        time_thread = threading.Thread(target=clock, args=(pill,))
-        add_pill(time_thread)
+        app_exit = threading.Event()
+        time_thread = EventThread(clock, app_exit)
         time_thread.start()
 
         @stream_client.on('packet')
