@@ -15,7 +15,7 @@ import IPython
 import p4runtime_sh.shell as sh
 
 from gen_full_netcfg import set_default_net_config
-from utils import p4sh_helper
+from utils import gen_pill, p4sh_helper
 
 log = logging.getLogger('p4_control')
 # Do not propagate to root log
@@ -308,39 +308,32 @@ def enable_digest(p4i: p4sh_helper.P4Info, name: str) -> None:
     log.info('Enable digest: %s', name)
 
 
-class ClockThread(threading.Thread):
-    def __init__(self):
-        super().__init__()
-        self.pill2kill = threading.Event()
-
-    def run(self):
-        while True:
-            now = int(time.time())
-            for info in _app_context.ip_pair_info.values():
-                updates = []
-                for i in range(3):
-                    info.accu_error[i] = 0
-                    if (info.max_conns[i] < default_max_conns[i] and
-                            now - info.error_ts[i] > 60):
-                        info.max_conns[i] += 1
-                        updates.append(reg_update(info.index, i+3, '+', 1))
-                        log.info(
-                            '> reg_update(index=%s, id2=%s, op=%s, value=%s)',
-                            info.index, i+3, '+', 1
-                        )
-                if len(updates) > 0:
-                    p = sh.PacketOut(b'\3%c' % len(updates)+b''.join(updates))
-                    p.metadata['handler'] = '2'
-                    p.send()
-            while time.time() - now < 60:
-                if self.pill2kill.is_set():
-                    break
-                time.sleep(1)
-            if self.pill2kill.is_set():
+def clock(pill: threading.Event):
+    while True:
+        now = int(time.time())
+        for info in _app_context.ip_pair_info.values():
+            updates = []
+            for i in range(3):
+                info.accu_error[i] = 0
+                if (info.max_conns[i] < default_max_conns[i] and
+                        now - info.error_ts[i] > 60):
+                    info.max_conns[i] += 1
+                    updates.append(reg_update(info.index, i+3, '+', 1))
+                    log.info(
+                        '> reg_update(index=%s, id2=%s, op=%s, value=%s)',
+                        info.index, i+3, '+', 1
+                    )
+            if len(updates) > 0:
+                p = sh.PacketOut(b'\3%c' % len(updates)+b''.join(updates))
+                p.metadata['handler'] = '2'
+                p.send()
+        while time.time() - now < 60:
+            if pill.is_set():
                 break
+            time.sleep(1)
+        if pill.is_set():
+            break
 
-    def stop(self):
-        self.pill2kill.set()
 
 def cmd_one(args):  # noqa: C901
     """Setup one switch and sniff.
@@ -373,7 +366,9 @@ def cmd_one(args):  # noqa: C901
         print('Listening on controller for switch "{}"'.format(switch))
         stream_client = p4sh_helper.StreamClient(sh.client)
 
-        time_thread = ClockThread()
+        pill, add_pill = gen_pill()
+        time_thread = threading.Thread(target=clock, args=(pill,))
+        add_pill(time_thread)
         time_thread.start()
 
         @stream_client.on('packet')
