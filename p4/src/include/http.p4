@@ -219,6 +219,7 @@ control http_ingress(
                                 bit<32> index = (bit<32>)meta.register_index;
                                 is_long = (bit<32>)meta.http_body_len * 20
                                     < meta.http_header_content_length;
+#ifndef CCSA
                                 bit<4> max_conn;
                                 bit<4> n_conn;
                                 if (meta.http_method == Method.GET) {
@@ -252,6 +253,9 @@ control http_ingress(
                                         do_report_fragment = true;
                                     }
                                 }
+#else // CCSA
+                                do_report_fragment = true;
+#endif // CCSA
                                 if (do_report_fragment) {
                                     // calling digest in different if condition
                                     // delays sending digest

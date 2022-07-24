@@ -26,7 +26,7 @@
 #include "include/port_meters.p4"
 #include "include/checksums.p4"
 #include "include/packet_io.p4"
-#include "include/table0.p4"
+#include "include/acl.p4"
 #include "include/next.p4"
 #include "include/http.p4"
 #include "include/host_meter_table.p4"
@@ -40,13 +40,18 @@ control ingress(inout headers_t hdr,
                 inout local_metadata_t local_metadata,
                 inout standard_metadata_t standard_metadata) {
 
+    Acl() acl;
     apply {
         port_counters_ingress.apply(hdr, standard_metadata);
         port_meters_ingress.apply(hdr, standard_metadata);
         packetio_ingress.apply(hdr, standard_metadata);
-        // table0_control.apply(hdr, local_metadata, standard_metadata);
-        next.apply(hdr, local_metadata, standard_metadata);
-        http_ingress.apply(hdr, local_metadata, standard_metadata);
+        acl.apply(hdr, local_metadata, standard_metadata);
+        if (!local_metadata.skip_next) {
+            next.apply(hdr, local_metadata, standard_metadata);
+        }
+        if (!local_metadata.skip_next) {
+            http_ingress.apply(hdr, local_metadata, standard_metadata);
+        }
         host_meter_control.apply(hdr, local_metadata, standard_metadata);
         wcmp_control.apply(hdr, local_metadata, standard_metadata);
      }

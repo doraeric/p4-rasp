@@ -37,6 +37,7 @@ struct local_metadata_t {
     bit<16>       l4_src_port;
     bit<16>       l4_dst_port;
     next_hop_id_t next_hop_id;
+    bool skip_next; // skip control pipelines
     @field_list(1)
     bool          update_tcp_checksum;
     @field_list(1)

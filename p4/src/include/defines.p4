@@ -136,6 +136,8 @@ enum bit<8> Method {
 #define _FALSE false
 #endif
 
+#define ACL_TABLE_SIZE 1024
+
 typedef bit<48> mac_t;
 typedef bit<32> ip_address_t;
 typedef bit<16> l4_port_t;

@@ -16,11 +16,16 @@ P4C=$(DOCKER) run --rm \
 
 P4FLAGS=--arch v1model -DTARGET_BMV2
 
-.PHONY: all env
+.PHONY: all ccsa env
 
 all:
 	mkdir -p build
 	$(P4C) $(P4FLAGS) \
+		-o build/bmv2.json --p4runtime-files build/p4info.txt src/basic.p4
+
+ccsa:
+	mkdir -p build
+	$(P4C) $(P4FLAGS) -DCCSA \
 		-o build/bmv2.json --p4runtime-files build/p4info.txt src/basic.p4
 
 env:
