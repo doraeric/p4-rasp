@@ -11,6 +11,7 @@ from google.protobuf import text_format
 from p4.config.v1 import p4info_pb2
 from p4.v1 import p4runtime_pb2
 import p4runtime_sh
+from p4runtime_sh import bytes_utils
 import p4runtime_sh.shell as sh
 from p4runtime_sh.shell import P4Objects
 from p4runtime_sh.context import P4Type
@@ -272,6 +273,15 @@ class MatchKeyBin(sh.MatchKey):
         elif field_info.match_type == p4info_pb2.MatchField.LPM:
             raise NotImplementedError
         elif field_info.match_type == p4info_pb2.MatchField.TERNARY:
+            # FIXME: no tuple from __setitem__
+            if isinstance(value, tuple) and len(value) == 2:
+                return self._sanitize_and_convert_mf_ternary(
+                    *value, field_info)
+            if isinstance(value, bytes):
+                bitwidth = field_info.bitwidth
+                mask = bytes_utils.parse_value('0b' + '1' * bitwidth, bitwidth)
+                return self._sanitize_and_convert_mf_ternary(
+                    value, mask, field_info)
             raise NotImplementedError
         elif field_info.match_type == p4info_pb2.MatchField.RANGE:
             raise NotImplementedError
