@@ -26,6 +26,30 @@ except:
 net_config = json.load(open(os.path.join(dir_path, "netcfg.json")))
 set_default_net_config(net_config)
 
+apache_site_conf = '''
+<Proxy *>
+    Order allow,deny
+    Allow from all
+</Proxy>
+
+ProxyPass /api http://localhost:3000
+ProxyPassReverse /api http://localhost:3000
+ProxyPass / http://localhost:9090/
+ProxyPassReverse / http://localhost:9090/
+ProxyPreserveHost on
+'''[1:]
+
+def turn_off_security(h):
+    # https://stackoverflow.com/questions/45483844/how-to-insert-a-string-into-second-to-last-line-of-a-file
+    h.cmd('a2dismod reqtimeout')
+    h.cmd("sed -i '13i\\\tLimitRequestFields 0\\' /etc/apache2/sites-available/000-default.conf")
+
+def setup_backend(h):
+    h.cmd('mkdir -p /opt/pad.js')
+    h.cmd('pad.js --servedir=/opt/pad.js &')
+    h.cmd("""echo '{"gps-locations":[{"id": 1, "lat": 0.1, "lng": 0.1}]}' > /opt/db.json""")
+    h.cmd('json-server --watch /opt/db.json &')
+
 original_build = Mininet.build
 def build(self):
     """Set default gateway and add neighbor arp for hosts"""
@@ -69,7 +93,17 @@ def build(self):
         print(' '.join(added_interfaces))
     # Start h1 apache server
     h1 = self.nameToNode['h1']
+    turn_off_security(h1)
+    setup_backend(h1)
     h1.cmd('echo "ServerName 127.0.0.1" >> /etc/apache2/apache2.conf')
+    h1.cmd('a2enmod proxy')
+    h1.cmd('a2enmod proxy_http')
+    h1.cmd('a2enmod rewrite')
+    with open('/etc/apache2/sites-available/000-default.conf', 'r+') as fd:
+        contents = fd.readlines()
+        contents.insert(29, apache_site_conf)
+        fd.seek(0)
+        fd.writelines(contents)
     h1.cmd('service apache2 start')
 
 Mininet.build = build
