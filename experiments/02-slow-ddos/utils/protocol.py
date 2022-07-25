@@ -1,0 +1,2 @@
+ETH_TYPE_IPV4 = b'\x08\0'
+IP_PROTO_TCP = b'\x06'
