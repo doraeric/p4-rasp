@@ -237,7 +237,7 @@ parser parser_impl(
                conti_content_state = 1;
             }
         }
-        bit<1> loop = meta.app_len - 1 > index && !meta.has_2_crlf ? 1w1: 1w0;
+        bit<1> loop = meta.app_len - 1 > index && !meta.has_2_crlf && char <= 0x7e ? 1w1: 1w0;
         transition select(loop) {
             1: parse_http_conti;
             default: accept;
