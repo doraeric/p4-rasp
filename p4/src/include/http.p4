@@ -253,16 +253,17 @@ control http_ingress(
                                         do_report_fragment = true;
                                     }
                                 }
-#else // CCSA
-                                do_report_fragment = true;
-#endif // CCSA
                                 if (do_report_fragment) {
                                     // calling digest in different if condition
                                     // delays sending digest
                                     report_fragment();
                                 }
+#endif // ndef CCSA
                             }
                         }
+#ifdef CCSA
+                        report_fragment();
+#endif // def CCSA
                     } else if (hdr.tcp.src_port == 80) {
                         if (meta.is_http_res_start) {
                             report_http_res();
