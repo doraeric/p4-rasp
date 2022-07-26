@@ -244,6 +244,7 @@ def cmd_one(args):  # noqa: C901
 
         # Open IPython shell
         IPython.embed(colors="neutral")
+        app_exit.set()
         stream_client.stop()
         time_thread.stop()
     sh.teardown()

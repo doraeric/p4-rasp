@@ -4,22 +4,19 @@ from threading import Event, Thread
 
 
 # https://stackoverflow.com/questions/12317940
-def or_set(self):
-    self._set()
-    self.changed()
-
-
-def or_clear(self):
-    self._clear()
-    self.changed()
-
-
 def orify(e, changed_callback):
-    e._set = e.set
-    e._clear = e.clear
-    e.changed = changed_callback
-    e.set = lambda: or_set(e)
-    e.clear = lambda: or_clear(e)
+    _set = e.set
+    _clear = e.clear
+
+    def or_set():
+        _set()
+        changed_callback()
+
+    def or_clear():
+        _clear()
+        changed_callback()
+    e.set = or_set
+    e.clear = or_clear
 
 
 def OrEvent(*events):
