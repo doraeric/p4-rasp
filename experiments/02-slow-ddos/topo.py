@@ -46,9 +46,11 @@ def turn_off_security(h):
 
 def setup_backend(h):
     h.cmd('mkdir -p /opt/pad.js')
-    h.cmd('pad.js --servedir=/opt/pad.js &')
+    h.cmd('mkdir -p /var/log/padjs')
+    h.cmd('mkdir -p /var/log/json-server')
+    h.cmd('pad.js --servedir=/opt/pad.js --timeout=-1 >/var/log/padjs/access.log 2>/var/log/padjs/error.log &')
     h.cmd("""echo '{"gps-locations":[{"id": 1, "lat": 0.1, "lng": 0.1}]}' > /opt/db.json""")
-    h.cmd('json-server --watch /opt/db.json &')
+    h.cmd('json-server --watch /opt/db.json >/var/log/json-server/access.log 2>/var/log/json-server/error.log &')
 
 original_build = Mininet.build
 def build(self):
