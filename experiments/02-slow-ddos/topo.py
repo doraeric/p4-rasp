@@ -65,6 +65,10 @@ def build(self):
         # Add default gateway and arp
         host.cmd('route add default gw {gateway} dev {name}-eth0'.format(gateway=router_ip, name=name))
         host.cmd('arp -i {name}-eth0 -s {ip} {mac}'.format(name=name, ip=router_ip, mac=router_mac))
+        # Enable conntrack
+        # https://manpages.ubuntu.com/manpages/xenial/man8/flowtop.8.html
+        host.cmd('iptables -A INPUT -p tcp -m state --state ESTABLISHED -j ACCEPT')
+        host.cmd('iptables -A OUTPUT -p tcp -m state --state NEW,ESTABLISHED -j ACCEPT')
         for link in net_config['links_from'][router]:
             point = link['to']
             if point['name'] == name or point['type'] == 'device': continue
