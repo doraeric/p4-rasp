@@ -1,0 +1,14 @@
+{
+  "name": "monitor-agent",
+  "version": "1.0.0",
+  "main": "index.mjs",
+  "author": "doraeric",
+  "license": "MIT",
+  "type": "module",
+  "dependencies": {
+    "commander": "^9.4.0"
+  },
+  "scripts": {
+    "start": "node index.mjs"
+  }
+}
