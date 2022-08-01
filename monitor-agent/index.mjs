@@ -3,11 +3,13 @@ import { spawn } from "child_process";
 import { promises as fs } from "fs";
 import { program } from "commander";
 
-program.option(
-  "-o, --output <filename>",
-  "path to output (csv/tsv format)",
-  "num_sockets.tsv"
-);
+program
+  .option(
+    "-o, --output <filename>",
+    "path to output (csv/tsv format)",
+    "num_sockets.tsv"
+  )
+  .option("-t, --timeout <sec>", "Stop monitoring when timeout", "0");
 
 program.parse();
 
@@ -15,6 +17,7 @@ const options = program.opts();
 /** @type {string} */
 const num_sockets_file = options.output;
 const sep = num_sockets_file.endsWith(".csv") ? "," : "\t";
+const monitorTimeout = parseFloat(options.timeout);
 
 async function main() {
   const pgrep_p = spawn("pgrep", ["-f", "apache2 -k"]);
@@ -239,11 +242,23 @@ async function main() {
     });
   })();
 
-  process.on("SIGINT", () => {
-    console.log("Caught interrupt signal");
+  const exitAll = () => {
     strace_ps.forEach((p) => p.kill());
     conntrack_p.kill();
     process.exit();
+  };
+  let timeoutObj = null;
+  if (monitorTimeout > 0) {
+    timeoutObj = setTimeout(() => {
+      console.log("Monitor timeout");
+      exitAll();
+    }, monitorTimeout * 1000);
+  }
+
+  process.on("SIGINT", () => {
+    console.log("Caught interrupt signal");
+    if (timeoutObj !== null) clearTimeout(timeoutObj);
+    exitAll();
   });
 }
 main();
