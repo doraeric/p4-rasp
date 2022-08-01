@@ -291,6 +291,8 @@ def main():
     pser.add_argument(
         '--debug', '-d', action="store_const", const=logging.DEBUG,
         dest='log_level', help="Set the logging level to debug")
+    pser.add_argument('--topo', default='topos/netcfg.json',
+                      help='Path to net config json')
     subparsers = pser.add_subparsers(
         required=True, help='Setup rules for all switches or one switch')
     pser_all = subparsers.add_parser('all')
@@ -310,8 +312,8 @@ def main():
     setup_logging(args)
     print(f'P4INFO={Path(P4INFO).resolve()}')
     print(f'P4BIN={Path(P4BIN).resolve()}')
-    net_config = json.load(
-        Path(__file__, '..', "netcfg.json").resolve().open())
+    topo_path = Path(__file__, '..', args.topo).resolve()
+    net_config = json.load(topo_path.open())
     set_default_net_config(net_config)
     _app_context.net_config = net_config
     args.func(args)

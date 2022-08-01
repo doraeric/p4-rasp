@@ -70,7 +70,13 @@ def select_mn_vhost(host_info):
     return is_mn_vhost
 
 if __name__ == '__main__':
+    import argparse
     from pathlib import Path
-    net_config = json.load(Path(__file__, '..', "netcfg.json").resolve().open())
+    pser = argparse.ArgumentParser()
+    pser.add_argument('--topo', default='topos/netcfg.json',
+                      help='Path to net config json')
+    args = pser.parse_args()
+    topo_path = Path(__file__, '..', args.topo).resolve()
+    net_config = json.load(topo_path.open())
     set_default_net_config(net_config)
     print(json.dumps(net_config))

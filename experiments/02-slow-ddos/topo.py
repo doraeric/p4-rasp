@@ -10,6 +10,7 @@ topology enables one to pass in '--topo=mytopo' from the command line.
 
 import json
 import os
+import sys
 
 from mininet.link import Intf
 from mininet.net import Mininet
@@ -22,8 +23,14 @@ try:
 except:
     dir_path = os.getcwd()
 
+topo_name = sys.argv[sys.argv.index('--topo') + 1]
+topo_file = os.path.join(dir_path, 'topos', topo_name + '.json')
+topo_file = (topo_file if os.path.exists(topo_file)
+             else os.path.join(dir_path, 'topos', "netcfg.json"))
+print('Topo file is ' + os.path.basename(topo_file))
+
 # Load network topology from json
-net_config = json.load(open(os.path.join(dir_path, "netcfg.json")))
+net_config = json.load(open(topo_file))
 set_default_net_config(net_config)
 
 apache_site_conf = '''
@@ -137,4 +144,4 @@ class MyTopo( Topo ):
             hs = [mn_hosts[p['name']] if p['type'] == 'host' else mn_switches[p['name']] for p in ps]
             self.addLink(hs[0], hs[1], ps[0]['port'], ps[1]['port'])
 
-topos = { 'mytopo': ( lambda: MyTopo() ) }
+topos = { topo_name: ( lambda: MyTopo() ) }
