@@ -20,6 +20,12 @@ from utils import protocol
 from utils.threading import EventTimer, EventThread
 
 import importlib
+
+P4INFO = os.getenv('P4INFO', '../../p4/build-ccsa/p4info.txt')
+P4BIN = os.getenv('P4BIN', '../../p4/build-ccsa/bmv2.json')
+os.environ['P4INFO'] = P4INFO
+os.environ['P4BIN'] = P4BIN
+
 p4_control = importlib.import_module('00_p4_control')
 setup_all_switches = p4_control.setup_all_switches
 setup_one_switch = p4_control.setup_one_switch
@@ -58,8 +64,6 @@ class AppContext:
 
 _app_context = AppContext(None)
 p4_control._app_context = _app_context
-P4INFO = os.getenv('P4INFO', '../../p4/build/p4info.txt')
-P4BIN = os.getenv('P4BIN', '../../p4/build/bmv2.json')
 
 
 def acl_del(ipv4_src: bytes, ipv4_dst: bytes) -> None:
