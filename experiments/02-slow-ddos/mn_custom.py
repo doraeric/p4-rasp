@@ -46,10 +46,13 @@ ProxyPassReverse / http://localhost:9090/
 ProxyPreserveHost on
 '''[1:]
 
-def turn_off_security(h):
+
+def setup_old_apache(h):
     # https://stackoverflow.com/questions/45483844/how-to-insert-a-string-into-second-to-last-line-of-a-file
     h.cmd('a2dismod reqtimeout')
     h.cmd("sed -i '13i\\\tLimitRequestFields 0\\' /etc/apache2/sites-available/000-default.conf")
+    h.cmd(r"sed -i 's/^Timeout [0-9]\+$/Timeout 60/' /etc/apache2/apache2.conf")
+
 
 def setup_backend(h):
     h.cmd('mkdir -p /opt/pad.js')
@@ -106,7 +109,7 @@ def build(self):
         print(' '.join(added_interfaces))
     # Start h1 apache server
     h1 = self.nameToNode['h1']
-    turn_off_security(h1)
+    setup_old_apache(h1)
     setup_backend(h1)
     h1.cmd('echo "ServerName 127.0.0.1" >> /etc/apache2/apache2.conf')
     h1.cmd('a2enmod proxy')
