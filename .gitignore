@@ -2,6 +2,8 @@ build/
 build-*/
 log/
 log-*/
+*.tsv
+*.csv
 
 # Java
 # Compiled class file
