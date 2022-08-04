@@ -2,6 +2,7 @@
 import { spawn } from "child_process";
 import { promises as fs } from "fs";
 import { program } from "commander";
+import path from "node:path";
 
 program
   .option(
@@ -18,39 +19,17 @@ const options = program.opts();
 const num_sockets_file = options.output;
 const sep = num_sockets_file.endsWith(".csv") ? "," : "\t";
 const monitorTimeout = parseFloat(options.timeout);
+const stepChartPath = (() => {
+  const parsed = path.parse(num_sockets_file);
+  return path.format({
+    root: parsed.root,
+    dir: parsed.dir,
+    base: `${parsed.name}-step-chart${parsed.ext}`,
+  });
+})(num_sockets_file);
 
 async function main() {
-  const pgrep_p = spawn("pgrep", ["-f", "apache2 -k"]);
-  let buf = "";
-  pgrep_p.stdout.on("data", (data) => {
-    buf += data;
-  });
-  await new Promise((resolve, reject) => {
-    pgrep_p.on("close", (code) => {
-      if (code == 0) {
-        resolve();
-      } else {
-        reject(code);
-      }
-    });
-  });
-  const pids = buf.trim().split(/\r?\n/);
-  console.log(`strace pids: ${pids}`);
-
-  buf = "";
-  const pgrep_p_h1 = spawn("pgrep", ["-f", "mininet:h1"]);
-  pgrep_p_h1.stdout.on("data", (data) => (buf += data));
-  await new Promise((resolve, reject) => {
-    pgrep_p_h1.on("close", (code) => {
-      if (code == 0) {
-        resolve();
-      } else {
-        console.log(code);
-        reject(code);
-      }
-    });
-  });
-  const h1Pid = buf.trim().split(/\r?\n/)[0];
+  const h1Pid = await getMininetPid("h1");
   console.log(`h1 pid: ${h1Pid}`);
   /**
    * @type {{
@@ -59,38 +38,115 @@ async function main() {
    */
   const sockets = {};
   const numSockets = { new: 0, accepted: 0, closed: 0 };
+  let lastTimestamp = 0;
+  const startTime = Date.now() / 1000;
   await fs.writeFile(
     num_sockets_file,
-    `timestamp${sep}new${sep}accepted${sep}closed\n`
+    `timestamp${sep}new${sep}accepted${sep}closed\n` +
+      `${startTime}${sep}0${sep}0${sep}0\n`
   );
-  const socketUpdate = async (timestamp) => {
-    const { new: newSocket, accepted, closed } = numSockets;
+  await fs.writeFile(
+    stepChartPath,
+    `timestamp${sep}new${sep}accepted${sep}closed\n` +
+      `${startTime}${sep}0${sep}0${sep}0\n`
+  );
+  /**
+   * @param {string} filepath
+   * @param {number} timestamp
+   * @param {{
+   *   new: number,
+   *   accepted: number,
+   *   closed: number
+   * }} numSockets
+   */
+  const writeNumFile = async (
+    filepath,
+    timestamp,
+    { new: _new, accepted, closed }
+  ) => {
     const p = fs.appendFile(
-      num_sockets_file,
-      `${timestamp}${sep}${newSocket}${sep}${accepted}${sep}${closed}\n`
+      filepath,
+      `${timestamp}${sep}${_new}${sep}${accepted}${sep}${closed}\n`
     );
     await p;
   };
 
-  const strace_ps = pids.map((line) => {
-    return spawn("sudo", [
-      "strace",
-      "-ttt",
-      "-T",
-      "-ff",
-      "-e",
-      "trace=accept,accept4",
-      "-e",
-      "status=!failed",
-      "-p",
-      line,
-      // "-o",
-      // `apache`,
-    ]);
-  });
-  strace_ps.forEach((p) => {
+  /**
+   * @param {{
+   *   timestamp: number,
+   *   addr: string,
+   *   port: number,
+   * }}
+   */
+  const newSocket = ({ timestamp, addr, port }) => {
+    const key = `${addr}:${port}`;
+    if (!sockets.hasOwnProperty(key)) {
+      if (lastTimestamp < timestamp) lastTimestamp = timestamp;
+      writeNumFile(stepChartPath, timestamp, { ...numSockets });
+      sockets[key] = "new";
+      numSockets["new"] += 1;
+      writeNumFile(num_sockets_file, timestamp, { ...numSockets });
+      writeNumFile(stepChartPath, timestamp, { ...numSockets });
+    }
+  };
+
+  /**
+   * @param {{
+   *   timestamp: number,
+   *   addr: string,
+   *   port: number,
+   * }}
+   */
+  const acceptSocket = ({ timestamp, addr, port }) => {
+    if (lastTimestamp < timestamp) lastTimestamp = timestamp;
+    // timestamp from audit is about 1~2 ms earlier than strace
+    // so it's okay to add some time to sync with conntrack
+    if (timestamp < lastTimestamp) timestamp = lastTimestamp;
+    writeNumFile(stepChartPath, timestamp, { ...numSockets });
+    const key = `${addr}:${port}`;
+    if (sockets[key] === "new") {
+      numSockets["new"] -= 1;
+    }
+    numSockets["accepted"] += 1;
+    sockets[key] = "accepted";
+    writeNumFile(num_sockets_file, timestamp, { ...numSockets });
+    writeNumFile(stepChartPath, timestamp, { ...numSockets });
+  };
+
+  /**
+   * @param {{
+   *   timestamp: number,
+   *   addr: string,
+   *   port: number,
+   * }}
+   */
+  const closeSocket = ({ timestamp, addr, port }) => {
+    const key = `${addr}:${port}`;
+    if (sockets[key] !== "closed") {
+      if (lastTimestamp < timestamp) lastTimestamp = timestamp;
+      writeNumFile(stepChartPath, timestamp, { ...numSockets });
+      if (sockets[key] === "new") {
+        numSockets["new"] -= 1;
+      } else if (sockets[key] === "accepted") {
+        numSockets["accepted"] -= 1;
+      }
+      sockets[key] = "closed";
+      numSockets["closed"] += 1;
+      writeNumFile(num_sockets_file, timestamp, { ...numSockets });
+      writeNumFile(stepChartPath, timestamp, { ...numSockets });
+    }
+  };
+
+  await addAudit();
+  const tail_audit_p = spawn("sudo", [
+    "tail",
+    "-n0",
+    "-f",
+    "/var/log/audit/audit.log",
+  ]);
+  ((p) => {
     let buf = "";
-    p.stderr.on("data", (/** @type {Buffer} */ data) => {
+    p.stdout.on("data", (/** @type {Buffer} */ data) => {
       buf += data.toString();
       buf = buf.split(/\r?\n/);
       buf.slice(0, -1).forEach((line) => {
@@ -98,57 +154,65 @@ async function main() {
       });
       buf = buf.slice(-1)[0];
     });
+    const eventBuf = new Set();
     p.on("line", (/** @type {string} */ line) => {
-      // https://stackoverflow.com/questions/546433/regular-expression-to-match-balanced-parentheses
-      const result = line.match(
-        /(\[pid (?<pid>\d+)\] )?(?<timestamp>\d+\.\d+) (?<syscall>\w+)(?<argstr>\((?:[^)(]+|\((?:[^)(]+|\([^)(]*\))*\))*\)) = (?<ret>\d+) <(?<deltatime>\d+\.\d+)/
-      );
-      if (result === null) {
-        console.log(line);
-      } else {
-        const syscall = result.groups.syscall;
-        if (syscall === "accept4") {
-          const args = result.groups.argstr.match(
-            /sin_port=htons\((?<port>\d+)\), sin_addr=inet_addr\(["'](?<addr>[\d\.]+)["']\)/
-          );
-          if (args === null) {
-            console.log(args);
-          } else {
-            const addr = args.groups.addr;
-            const port = parseInt(args.groups.port);
-            const returnTimestamp =
-              parseFloat(result.groups.timestamp) +
-              parseFloat(result.groups.deltatime);
-            p.emit("accept4", { addr, port, returnTimestamp });
-          }
+      if (line.startsWith("type=SYSCALL") || line.startsWith("type=SOCKADDR")) {
+        const result = line.match(
+          /type=(?<type>\w+) msg=audit\((?<timestamp>[\d+\.]+):(?<event_id>\d+)\): (?<msg>.*)$/
+        );
+        if (result === null) {
+          console.log(line);
         } else {
-          console.log(`unhandle event: ${syscall}`);
+          const { type, msg } = result.groups;
+          const timestamp = parseFloat(result.groups.timestamp);
+          const event_id = parseInt(result.groups.event_id);
+          p.emit(type, { timestamp, event_id, msg });
         }
       }
     });
     p.on(
-      "accept4",
+      "SYSCALL",
       /**
        * @param {{
-       *   addr: string,
-       *   port: number,
-       *   returnTimestamp: number,
-       * }} args
+       *   timestamp: number,
+       *   event_id: number,
+       *   msg: string,
+       * }}
        */
-      ({ addr, port, returnTimestamp: timestamp }) => {
-        const key = `${addr}:${port}`;
-        if (sockets[key] === "new") {
-          numSockets["new"] -= 1;
+      ({ timestamp, event_id, msg }) => {
+        if (msg.includes(' key="socket_events"')) {
+          eventBuf.add(event_id);
         }
-        numSockets["accepted"] += 1;
-        sockets[key] = "accepted";
-        socketUpdate(timestamp);
       }
     );
-    p.on("close", (code) => {
-      console.log(`strace exit code ${code}`);
-    });
-  });
+    p.on(
+      "SOCKADDR",
+      /**
+       * @param {{
+       *   timestamp: number,
+       *   event_id: number,
+       *   msg: string,
+       * }}
+       */
+      ({ timestamp, event_id, msg }) => {
+        if (eventBuf.has(event_id)) {
+          eventBuf.delete(event_id);
+          const result = msg.match(
+            / laddr=(?<laddr>[\d\.]+)\s+lport=(?<lport>\d+)/
+          );
+          if (result === null) {
+            console.log(
+              `type=SOCKADDR msg=audit(${timestamp}:${event_id}): ${msg}`
+            );
+          } else {
+            const { laddr } = result.groups;
+            const lport = parseInt(result.groups.lport);
+            acceptSocket({ timestamp, addr: laddr, port: lport });
+          }
+        }
+      }
+    );
+  })(tail_audit_p);
 
   const conntrack_p = spawn("sudo", [
     "nsenter",
@@ -183,27 +247,17 @@ async function main() {
       if (result === null) {
         console.log(line);
       } else {
-        const timestamp = parseFloat(result.groups.timestamp),
-          event = result.groups.event,
-          proto = result.groups.proto,
-          state = result.groups?.state || null,
-          src = result.groups.src,
-          dst = result.groups.dst,
-          sport = parseInt(result.groups.sport),
-          dport = parseInt(result.groups.dport);
+        const { event, proto, src, dst } = result.groups;
+        const timestamp = parseFloat(result.groups.timestamp);
+        const state = result.groups?.state || null;
+        const sport = parseInt(result.groups.sport);
+        const dport = parseInt(result.groups.dport);
         const key = `${src}:${sport}`;
         if (event === "NEW") {
-          sockets[key] = "new";
-          numSockets["new"] += 1;
-          socketUpdate(timestamp);
+          newSocket({ timestamp, addr: src, port: sport });
         } else if (event === "UPDATE") {
-          if (
-            ["SYN_SENT", "SYN_RECV", "ESTABLISHED"].includes(state) &&
-            !sockets.hasOwnProperty(key)
-          ) {
-            sockets[key] = "new";
-            numSockets["new"] += 1;
-            socketUpdate(timestamp);
+          if (["SYN_SENT", "SYN_RECV", "ESTABLISHED"].includes(state)) {
+            newSocket({ timestamp, addr: src, port: sport });
           } else if (
             [
               "FIN_WAIT",
@@ -213,52 +267,98 @@ async function main() {
               "CLOSE",
             ].includes(state)
           ) {
-            if (sockets[key] === "new") {
-              sockets[key] = "closed";
-              numSockets["new"] -= 1;
-              numSockets["closed"] += 1;
-              socketUpdate(timestamp);
-            } else if (sockets[key] === "accepted") {
-              sockets[key] = "closed";
-              numSockets["accepted"] -= 1;
-              numSockets["closed"] += 1;
-              socketUpdate(timestamp);
-            }
+            closeSocket({ timestamp, addr: src, port: sport });
           }
         } else if (event === "DESTROY") {
-          if (sockets[key] === "new") {
-            sockets[key] = "closed";
-            numSockets["new"] -= 1;
-            numSockets["closed"] += 1;
-            socketUpdate(timestamp);
-          } else if (sockets[key] === "accepted") {
-            sockets[key] = "closed";
-            numSockets["accepted"] -= 1;
-            numSockets["closed"] += 1;
-            socketUpdate(timestamp);
-          }
+          closeSocket({ timestamp, addr: src, port: sport });
         }
       }
     });
   })();
 
-  const exitAll = () => {
-    strace_ps.forEach((p) => p.kill());
+  const exitAll = async () => {
+    await clearAudit();
     conntrack_p.kill();
     process.exit();
   };
   let timeoutObj = null;
   if (monitorTimeout > 0) {
-    timeoutObj = setTimeout(() => {
+    timeoutObj = setTimeout(async () => {
       console.log("Monitor timeout");
-      exitAll();
+      await exitAll();
     }, monitorTimeout * 1000);
   }
 
-  process.on("SIGINT", () => {
+  process.on("SIGINT", async () => {
     console.log("Caught interrupt signal");
     if (timeoutObj !== null) clearTimeout(timeoutObj);
-    exitAll();
+    await exitAll();
   });
 }
 main();
+
+function addAudit() {
+  return new Promise((resolve, reject) => {
+    const p = spawn("sudo", [
+      "auditctl",
+      "-a",
+      "always,exit",
+      "-F",
+      "arch=b64",
+      "-S",
+      "accept",
+      "-S",
+      "accept4",
+      "-F",
+      "uid=http",
+      "-F",
+      "success=1",
+      "-k",
+      "socket_events",
+    ]);
+    p.on("close", (code) => {
+      if (code === 0) {
+        return resolve();
+      } else {
+        return reject(code);
+      }
+    });
+  });
+}
+
+function clearAudit() {
+  return new Promise((resolve, reject) => {
+    const p = spawn("sudo", ["auditctl", "-D"]);
+    p.on("close", (code) => {
+      if (code === 0) {
+        return resolve();
+      } else {
+        return reject(code);
+      }
+    });
+  });
+}
+
+/**
+ * @param {string} host
+ * @return {Promise<string>}
+ */
+function getMininetPid(host) {
+  return new Promise((resolve, reject) => {
+    let buf = "";
+    const pgrep_p = spawn("pgrep", ["-f", `is mininet:${host}\\b`]);
+    pgrep_p.stdout.on("data", (data) => (buf += data));
+    pgrep_p.on("close", (code) => {
+      if (code === 0) {
+        const pid = buf.trim().split(/\r?\n/);
+        if (pid.length !== 1) {
+          return reject(`Found multiple processes for ${host}`);
+        } else {
+          return resolve(pid[0]);
+        }
+      } else {
+        reject(code);
+      }
+    });
+  });
+}
