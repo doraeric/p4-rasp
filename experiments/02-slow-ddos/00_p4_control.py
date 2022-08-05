@@ -46,6 +46,7 @@ class AppContext:
     ip_counter: int = 0
     ip_pair_info: dict[tuple, IpPairInfo] = field(default_factory=dict)
     conns: dict = field(default_factory=dict)
+    eth_addr: dict = field(default_factory=dict)
 
 
 _app_context = AppContext(None)
@@ -189,6 +190,8 @@ def handle_new_ip(packet, p4i: p4sh_helper.P4Info):
     _app_context.ip_counter += 1
     ip_pair_info[key] = IpPairInfo(index=index)
     info = ip_pair_info[key]
+    _app_context.eth_addr[ips[0]] = members[2].rjust(6, b"\0")
+    _app_context.eth_addr[ips[1]] = members[3].rjust(6, b"\0")
     # Initialize ip pair register
     # instruction, (index, max_short_get, max_short_other, max_long_other)
     payload = ((index << 12) + (info.max_conns[0] << 8) +
@@ -205,6 +208,36 @@ def handle_new_ip(packet, p4i: p4sh_helper.P4Info):
         te.insert()
     p.send()
     log.info('> ip_pair[%s] = %s <-> %s', index, ip_str[0], ip_str[1])
+
+
+def send_rst(
+    src_ip: bytes, dst_ip: bytes, src_port: bytes, dst_port: bytes,
+    seq: int, ack: int
+):
+    src_ip = src_ip.rjust(4, b'\0')
+    dst_ip = dst_ip.rjust(4, b'\0')
+    src_port = src_port.rjust(2, b'\0')
+    dst_port = dst_port.rjust(2, b'\0')
+    eth_dst = _app_context.eth_addr[dst_ip]
+    eth_src = _app_context.eth_addr[src_ip]
+    seq = seq.to_bytes(4, 'big')
+    ack = ack.to_bytes(4, 'big')
+    for (_eth_src, _eth_dst, _sip, _dip, _sport, _dport, _seq, _ack) in (
+        (eth_src, eth_dst, src_ip, dst_ip, src_port, dst_port, seq, ack),
+        (eth_dst, eth_src, dst_ip, src_ip, dst_port, src_port, ack, seq),
+    ):
+        payload = b'\1'
+        payload += _eth_dst + _eth_src + b'\x08\x00'
+        payload += b'\x45\x00\x00\x28\0\0\x40\0\x40\x06\0\0' + _sip + _dip
+        payload += _sport + _dport + _seq + b'\0\0\0\0\x50\x04\0\0\0\0\0\0'
+        p = sh.PacketOut(payload)
+        p.metadata['handler'] = '3'
+        p.send()
+    log.info(
+        '> RST %d.%d.%d.%d:%s <--> %d.%d.%d.%d:%s',
+        *src_ip, int.from_bytes(src_port, 'big'),
+        *dst_ip, int.from_bytes(dst_port, 'big'),
+    )
 
 
 def handle_fragment(packet, msg: dict):

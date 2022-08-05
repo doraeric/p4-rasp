@@ -32,11 +32,16 @@ header packet_out_header_t {
     // 0: parsing as normal
     // 1: no parsing, forward to egress_port
     // 2: instructions from controller
+    // 3: add information then parse as normal ethernet packets
     bit<2> handler;
     bit<5> _padding;
 }
 
 header instruction_t {
+    bit<8> id;
+}
+
+header pout_setup_t {
     bit<8> id;
 }
 

@@ -35,6 +35,8 @@ struct registers_t {
 struct new_ip_t {
     bit<32> src_addr;
     bit<32> dst_addr;
+    bit<48> eth_src;
+    bit<48> eth_dst;
 }
 
 struct fragment_t {
@@ -42,6 +44,8 @@ struct fragment_t {
     bit<32> dst_addr;
     bit<16> src_port;
     bit<16> dst_port;
+    bit<32> seq_no;
+    bit<32> ack_no;
     bit<16> app_len;
     bit<32> content_length;
     bit<1> is_req_start;
@@ -114,7 +118,9 @@ control http_ingress(
     action report_new_ip() {
         digest<new_ip_t>(1, {
             hdr.ipv4.src_addr,
-            hdr.ipv4.dst_addr
+            hdr.ipv4.dst_addr,
+            hdr.ethernet.src_addr,
+            hdr.ethernet.dst_addr
         });
     }
 
@@ -124,6 +130,8 @@ control http_ingress(
             hdr.ipv4.dst_addr,
             hdr.tcp.src_port,
             hdr.tcp.dst_port,
+            hdr.tcp.seq_no,
+            hdr.tcp.ack_no,
             meta.app_len,
             meta.http_header_content_length,
             meta.is_http_req_start ? 1w1: 0,
@@ -200,7 +208,7 @@ control http_ingress(
     }
 
     apply {
-        if (hdr.tcp.isValid()) {
+        if (hdr.tcp.isValid() && !hdr.pout_setup.isValid()) {
             // The switch only sends one digest out per packet, be careful
             if (ip_pair.apply().hit) {
                 if (meta.app_len > 0) {
@@ -316,6 +324,11 @@ control http_ingress(
                 update_register(5)
                 update_register(6)
                 update_register(7)
+            }
+        }
+        if (hdr.pout_setup.isValid()) {
+            if (hdr.pout_setup.id == 1) {
+                meta.bad_http = true;
             }
         }
     }

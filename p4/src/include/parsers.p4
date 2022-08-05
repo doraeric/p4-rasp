@@ -45,6 +45,7 @@ parser parser_impl(
         transition select(hdr.packet_out.handler) {
             1: accept;
             2: parse_packet_out_instruction;
+            3: parse_setup_then_ether;
             default: parse_ethernet;
         }
     }
@@ -78,6 +79,11 @@ parser parser_impl(
             1: parse_reg_update;
             default: accept;
         }
+    }
+
+    state parse_setup_then_ether {
+        packet.extract(hdr.pout_setup);
+        transition parse_ethernet;
     }
 
     state parse_ethernet {

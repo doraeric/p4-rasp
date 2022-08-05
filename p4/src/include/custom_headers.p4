@@ -20,6 +20,7 @@ struct headers_t {
     packet_out_header_t packet_out;
     packet_in_header_t packet_in;
     instruction_t instruction;
+    pout_setup_t pout_setup;
     reg_init_t reg_init;
     reg_read_t reg_read;
     reg_update_cnt_t reg_cnt;
