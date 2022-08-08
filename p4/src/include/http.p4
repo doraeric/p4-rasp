@@ -207,8 +207,32 @@ control http_ingress(
         }
     }
 
+    action add_bad_meta() {
+        meta.bad_http = true;
+    }
+
+    table conn {
+        key = {
+            hdr.ipv4.src_addr: exact;
+            hdr.ipv4.dst_addr: exact;
+            hdr.tcp.src_port: exact;
+            hdr.tcp.dst_port: exact;
+        }
+        actions = {
+            add_bad_meta;
+            NoAction;
+        }
+    }
+
     apply {
-        if (hdr.tcp.isValid() && !hdr.pout_setup.isValid()) {
+        if (!hdr.pout_setup.isValid()) {
+            conn.apply();
+            // not packet-out, matched, convert to RST
+            if (meta.bad_http) {
+                mark_bad_http_and_clone();
+            }
+        }
+        if (hdr.tcp.isValid() && !hdr.pout_setup.isValid() && !meta.bad_http) {
             // The switch only sends one digest out per packet, be careful
             if (ip_pair.apply().hit) {
                 if (meta.app_len > 0) {
@@ -327,9 +351,12 @@ control http_ingress(
             }
         }
         if (hdr.pout_setup.isValid()) {
-            if (hdr.pout_setup.id == 1) {
-                meta.bad_http = true;
+            if (hdr.tcp.isValid() && meta.app_len == 0) {
+                meta.update_tcp_checksum = true;
             }
+            // if (hdr.pout_setup.id == 1) {
+            //     meta.bad_http = true;
+            // }
         }
     }
 }
