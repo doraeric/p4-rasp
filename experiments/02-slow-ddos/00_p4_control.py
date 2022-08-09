@@ -16,7 +16,8 @@ import p4runtime_sh.shell as sh
 
 from gen_full_netcfg import set_default_net_config
 from utils import p4sh_helper
-from utils.threading import EventThread
+from utils.entries import rst_entry
+from utils.threading import EventTimer, EventThread
 
 log = logging.getLogger('p4_control')
 # Do not propagate to root log
@@ -178,6 +179,34 @@ def req_register_read(index: int = 0):
     p.send()
 
 
+def send_updates(updates: list):
+    if len(updates) == 0:
+        return
+    p = sh.PacketOut(b'\3%c' % len(updates) + b''.join(updates))
+    p.metadata['handler'] = '2'
+    p.send()
+
+
+def punish(members: list, http_type: int) -> list:
+    info = _app_context.ip_pair_info[tuple(sorted(members[:2]))]
+    info.accu_error[http_type] += 1
+    info.error_ts[http_type] = time.time()
+    index = info.index
+    updates = []
+    if info.accu_error[http_type] >= 3:
+        info.accu_error[http_type] -= 3
+        if info.accu_error[http_type] < 0:
+            info.accu_error[http_type] = 0
+        if info.max_conns[http_type] > default_min_conns[http_type]:
+            info.max_conns[http_type] -= 1
+            updates.append(reg_update(index, http_type+3, '-', 1))
+            log.info(
+                '> reg_update(index=%s, reg_id=%s, op=%s, value=%s)',
+                index, http_type+3, '-', 1
+            )
+    return updates
+
+
 def handle_new_ip(packet, p4i: p4sh_helper.P4Info):
     ip_pair_info = _app_context.ip_pair_info
     members = [i.bitstring for i in packet.data[0].struct.members]
@@ -210,7 +239,7 @@ def handle_new_ip(packet, p4i: p4sh_helper.P4Info):
     log.info('> ip_pair[%s] = %s <-> %s', index, ip_str[0], ip_str[1])
 
 
-def send_rst(
+def send_rst_bi(
     src_ip: bytes, dst_ip: bytes, src_port: bytes, dst_port: bytes,
     seq: int, ack: int
 ):
@@ -240,7 +269,109 @@ def send_rst(
     )
 
 
-def handle_fragment(packet, msg: dict):
+def insert_rst_entry_bi(sip, dip, sport, dport):
+    rst_entry(p4sh_helper, sip, dip, sport, dport).insert()
+    rst_entry(p4sh_helper, dip, sip, dport, sport).insert()
+    log.info(
+        '> ins rst %s.%s.%s.%s:%s <--> %s.%s.%s.%s:%s',
+        *sip, int.from_bytes(sport, 'big'),
+        *dip, int.from_bytes(dport, 'big'),
+    )
+
+
+def delete_rst_entry_bi(sip, dip, sport, dport):
+    rst_entry(p4sh_helper, sip, dip, sport, dport).delete()
+    rst_entry(p4sh_helper, dip, sip, dport, sport).delete()
+    log.info(
+        '> del rst %s.%s.%s.%s:%s <--> %s.%s.%s.%s:%s',
+        *sip, int.from_bytes(sport, 'big'),
+        *dip, int.from_bytes(dport, 'big'),
+    )
+
+
+def del_then_send_rst(tcp_key, sip, dip, sport, dport):
+    conn = _app_context.conns.get(tcp_key)
+    delete_rst_entry_bi(sip, dip, sport, dport)
+    if conn is not None:
+        send_rst_bi(sip, dip, sport, dport, conn['seq_no'], conn['ack_no'])
+    del _app_context.conns[tcp_key]
+
+
+def schedule_rst(members, app_exit: threading.Event, return_update=False):
+    """Close connection with table rules and RST packet.
+
+    RST only close client if seq is not correct so convert packets to RST first
+
+    Returns:
+        register_update if there is an update and return_update is True
+        None otherwise
+    """
+    tcp_key = to_tcp_key(members[:4])
+    conn = _app_context.conns.get(tcp_key)
+    if conn is None or conn['rst_added']:
+        return
+    conn['rst_added'] = True
+
+    # decrease conn register
+    info = _app_context.ip_pair_info[tuple(sorted(members[:2]))]
+    http_type = conn['http_type']
+    info.n_conns[http_type] -= 1
+    update = reg_update(info.index, http_type, '-', 1)
+
+    # block by RST and send RST
+    src_ip = members[0].rjust(4, b'\0')
+    dst_ip = members[1].rjust(4, b'\0')
+    src_port = members[2].rjust(2, b'\0')
+    dst_port = members[3].rjust(2, b'\0')
+    insert_rst_entry_bi(src_ip, dst_ip, src_port, dst_port)
+    EventTimer(20.0, del_then_send_rst, app_exit, args=(
+        tcp_key, src_ip, dst_ip, src_port, dst_port)).start()
+    if return_update:
+        return update
+    else:
+        send_updates([update])
+
+
+def check_req_timeout(members: list, app_exit: threading.Event):
+    tcp_key = to_tcp_key(members[:4])
+    conn = _app_context.conns.get(tcp_key)
+    info = _app_context.ip_pair_info[tuple(sorted(members[:2]))]
+    if conn is None:
+        return
+    conn['timer'] = None
+    http_type = conn['http_type']
+    if http_type == 2:
+        client = members[0], int.from_bytes(members[2], 'big')
+        log.error('long-term non-GET conn timeout %s:%s', *client)
+        return
+    if http_type == 0:
+        rst_added = conn['rst_added']
+        # try to punish
+        if not rst_added:
+            updates = []
+            updates.extend(punish(members, 0))
+            update = schedule_rst(members[:4], app_exit)
+            if update is not None:
+                updates.append(update)
+            send_updates(updates)
+    elif http_type == 1:
+        if info.n_conns[2] < info.max_conns[2]:
+            info.n_conns[2] += 1
+            info.n_conns[1] -= 1
+            send_updates([
+                reg_update(info.index, 2, '+', 1),
+                reg_update(info.index, 1, '-', 1),
+            ])
+        else:
+            updates = []
+            # updates.extend(punish(members, 1))
+            update = schedule_rst(members[:4], app_exit)
+            if update is not None:
+                updates.append(update)
+            send_updates(updates)
+
+
+def handle_fragment(packet, msg: dict, app_exit: threading.Event): # noqa: C901
     members = [i.bitstring for i in packet.data[0].struct.members]
     conns = _app_context.conns
     tcp_key = to_tcp_key(members[:4])
@@ -251,19 +382,52 @@ def handle_fragment(packet, msg: dict):
     for k in ['is_req_start', 'is_get', 'has_2_crlf', 'is_long']:
         msg[k] = msg[k] == 1
     if msg['is_req_start']:
+        if (conns.get(tcp_key) is not None and
+                conns[tcp_key]['timer'] is not None):
+            return
         conns[tcp_key] = msg
         conn = conns[tcp_key]
-        ip_pair_info = _app_context.ip_pair_info[ip_key]
+        conn['seq_no'] = (msg['seq_no'] + msg['app_len']) % 2 ** 32
+        conn['timer'] = None
+        conn['rst_added'] = False
         http_type = 0 if conn['is_get'] else 1 if not conn['is_long'] else 2
+        conn['http_type'] = http_type
+        ip_pair_info = _app_context.ip_pair_info[ip_key]
         ip_pair_info.n_conns[http_type] += 1
+        if http_type == 0 or http_type == 1:
+            timer = EventTimer(10.0, check_req_timeout, app_exit, args=(
+                members[:4], app_exit,
+            ))
+            conn['timer'] = timer
+            timer.start()
         return
     if tcp_key not in conns:
         return
     conn = conns[tcp_key]
+    conn['seq_no'] = (msg['seq_no'] + msg['app_len']) % 2 ** 32
+    conn['ack_no'] = msg['ack_no']
     if conn['has_2_crlf']:
         return
     if not conn['is_get'] and msg['content_length'] > 0:
         conn['content_length'] = msg['content_length']
+        info = _app_context.ip_pair_info[ip_key]
+        # http_type 1 -> 2 because late identify
+        if conn['http_type'] == 1:
+            # long term, late identify: don't punish
+            # short-term to long-term and exceed: punish
+            if conn['timer'] is not None:
+                conn['timer'].cancel()
+                conn['timer'] = None
+            if info.n_conns[2] >= info.max_conns[2]:
+                schedule_rst(members[:4], app_exit)
+            else:
+                conn['http_type'] = 2
+                info.n_conns[2] += 1
+                info.n_conns[1] -= 1
+                send_updates([
+                    reg_update(info.index, 2, '+', 1),
+                    reg_update(info.index, 1, '-', 1),
+                ])
     if msg['has_2_crlf']:
         conn['has_2_crlf'] = True
 
@@ -280,26 +444,17 @@ def handle_http_res(packet, msg: dict):
     if tcp_key not in _app_context.conns:
         return
     conn = _app_context.conns[tcp_key]
+    if conn['timer'] is not None:
+        conn['timer'].cancel()
+        conn['timer'] = None
     ip_key = tuple(sorted(members[:2]))
     ip_pair_info = _app_context.ip_pair_info[ip_key]
     index = ip_pair_info.index
     id2 = 0 if conn['is_get'] else 1 if not conn['is_long'] else 2
     ip_pair_info.n_conns[id2] -= 1
-    if msg['status_code'] == 4:
-        ip_pair_info.accu_error[id2] += 1
-        ip_pair_info.error_ts[id2] = int(time.time())
     updates = []
-    if ip_pair_info.accu_error[id2] >= 3:
-        ip_pair_info.accu_error[id2] -= 3
-        if ip_pair_info.accu_error[id2] < 0:
-            ip_pair_info.accu_error[id2] = 0
-        if ip_pair_info.max_conns[id2] > default_min_conns[id2]:
-            ip_pair_info.max_conns[id2] -= 1
-            updates.append(reg_update(index, id2+3, '-', 1))
-            log.info(
-                '> reg_update(index=%s, id2=%s, op=%s, value=%s)',
-                index, id2+3, '-', 1
-            )
+    if msg['status_code'] == 4:
+        updates.extend(punish(members, id2))
     updates.append(reg_update(index, id2, '-', 1))
     p = sh.PacketOut(b'\3%c' % len(updates) + b''.join(updates))
     p.metadata['handler'] = '2'
@@ -435,7 +590,7 @@ def cmd_one(args):  # noqa: C901
             elif name == 'new_ip_t':
                 handle_new_ip(packet, p4i)
             elif name == 'fragment_t':
-                handle_fragment(packet, msg)
+                handle_fragment(packet, msg, app_exit)
             elif name == 'http_res_t':
                 handle_http_res(packet, msg)
 
@@ -443,6 +598,7 @@ def cmd_one(args):  # noqa: C901
 
         # Open IPython shell
         IPython.embed(colors="neutral")
+        app_exit.set()
         stream_client.stop()
         time_thread.stop()
     sh.teardown()
