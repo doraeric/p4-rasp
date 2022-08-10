@@ -296,7 +296,7 @@ def del_then_send_rst(tcp_key, sip, dip, sport, dport):
     delete_rst_entry_bi(sip, dip, sport, dport)
     if conn is not None:
         send_rst_bi(sip, dip, sport, dport, conn['seq_no'], conn['ack_no'])
-    del _app_context.conns[tcp_key]
+        del _app_context.conns[tcp_key]
 
 
 def schedule_rst(members, app_exit: threading.Event, return_update=False):
