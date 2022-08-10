@@ -69,7 +69,7 @@ def setup_one_switch(switch: str) -> None:
     switch_info = net_config['devices_by_name'][switch]
     sh.setup(
         device_id=1,
-        grpc_addr=f'localhost:5000{switch[-1]}',
+        grpc_addr=f'localhost:{switch_info["basic"]["p4rt_port"]}',
         election_id=(0, 1),  # (high, low)
         config=sh.FwdPipeConfig(P4INFO, P4BIN),
     )
