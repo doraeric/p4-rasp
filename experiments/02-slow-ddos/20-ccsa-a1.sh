@@ -1,5 +1,7 @@
 #!/bin/bash
 set -e
+systemctl status auditd.service >/dev/null || systemctl status auditd.service
+
 sudo id
 CWD=`pwd`
 mn_host_pid=()
