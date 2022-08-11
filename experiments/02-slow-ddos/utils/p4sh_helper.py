@@ -1,6 +1,7 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import cache, partial
+import logging
 from operator import attrgetter
 import queue
 import threading
@@ -16,6 +17,10 @@ import p4runtime_sh.shell as sh
 from p4runtime_sh.shell import P4Objects
 from p4runtime_sh.context import P4Type
 from p4runtime_sh.p4runtime import P4RuntimeClient
+
+from utils.threading import OrEvent
+
+log = logging.getLogger('p4sh_helper')
 
 
 def _get_preamble_types() -> dict[str, str]:
@@ -34,6 +39,29 @@ _entity_fields = {
     i.message_type.name: i.name for i in p4runtime_pb2.Entity.DESCRIPTOR.fields
 }
 _preamble_types = _get_preamble_types()
+
+
+class P4RTClient(sh.P4RuntimeClient):
+    def __init__(
+        self, device_id: int = 1,
+        grpc_addr: str = 'localhost:50001',
+        election_id: tuple = (1, 0),
+        p4info_path: str = None,
+        bin_path: str = None,
+    ):
+        super().__init__(device_id, grpc_addr, election_id)
+        if bin_path is not None and p4info_path is not None:
+            self.set_fwd_pipe_config(p4info_path, bin_path)
+        self.p4i = P4Info.read_txt(p4info_path)
+        self.TableEntry = partial(TableEntry, client=self)
+        self.CloneSessionEntry = partial(CloneSessionEntry, client=self)
+        self.PacketOut = partial(PacketOut, client=self)
+
+    def enable_all_digest(self) -> None:
+        for name in self.p4i.preamble_names['Digest'].values():
+            update = self.p4i.DigestEntry(name).as_update()
+            self.write_update(update)
+            log.info('Enable digest: %s', name)
 
 
 class P4Info:
@@ -164,11 +192,15 @@ class DigestEntry(UpdateEntity):
 
 class StreamClient:
     """Modified PacketIn from p4runtime_sh.shell"""
-    def __init__(self, client: P4RuntimeClient):
+    def __init__(
+        self, client: P4RuntimeClient, app_exit: threading.Event = None
+    ):
         self.client = client
         ctrl_pkt_md = P4Objects(P4Type.controller_packet_metadata)
         self.md_info_list = {}
         self.pill2kill = threading.Event()
+        self.anyEvent = (OrEvent(app_exit, self.pill2kill)
+                         if app_exit is not None else self.pill2kill)
         self.packet_in_callback = None
         self.digest_list_callback = None
         if "packet_in" in ctrl_pkt_md:
@@ -221,7 +253,7 @@ class StreamClient:
                 msg_type: "arbitration" | "packet" | "digest" | "unknown"
             """
             while True:
-                if self.pill2kill.is_set():
+                if self.anyEvent.is_set():
                     break
                 try:
                     msg = self.client.stream_in_q[msg_type].get(timeout=1)
@@ -243,10 +275,21 @@ class StreamClient:
         self.pill2kill.set()
 
 
+def _entry_write(self, type_):
+    self._update_msg()
+    self._validate_msg()
+    update = p4runtime_pb2.Update()
+    update.type = type_
+    getattr(update.entity, self._entity_type.name).CopyFrom(self._entry)
+    self.client.write_update(update)
+
+
 class TableEntry(sh.TableEntry):
-    def __init__(self, table_name=None):
+    def __init__(self, table_name=None, client=None):
         super().__init__(table_name)
         self.match = MatchKeyBin(table_name, self._info.match_fields)
+        self.client = client
+        self._write = partial(_entry_write, self)
 
     def __call__(self, **kwargs):
         for name, value in kwargs.items():
@@ -254,6 +297,13 @@ class TableEntry(sh.TableEntry):
                 value = Action(value)
             setattr(self, name, value)
         return self
+
+
+class CloneSessionEntry(sh.CloneSessionEntry):
+    def __init__(self, session_id=0, client=None):
+        super().__init__(session_id)
+        self.client = client
+        self._write = partial(_entry_write, self)
 
 
 class MatchKeyBin(sh.MatchKey):
@@ -297,3 +347,15 @@ class Action(sh.Action):
     def __setitem__(self, name, value):
         param_info = self._get_param(name)
         self._param_values[name] = self._parse_param(value, param_info)
+
+
+class PacketOut(sh.PacketOut):
+    def __init__(self, payload=b'', client: P4RTClient = None, **kwargs):
+        super().__init__(payload, **kwargs)
+        self.client = client
+
+    def send(self):
+        self._update_msg()
+        msg = p4runtime_pb2.StreamMessageRequest()
+        msg.packet.CopyFrom(self._entry)
+        self.client.stream_out_q.put(msg)
