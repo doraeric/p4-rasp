@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 import { spawn } from "child_process";
-import { promises as fs } from "fs";
 import { program } from "commander";
+import { promises as fs } from "fs";
 import path from "node:path";
+import winston from "winston";
 
 program
   .option(
@@ -28,7 +29,31 @@ const stepChartPath = (() => {
   });
 })(num_sockets_file);
 
+const logger = winston.createLogger({
+  level: "info",
+  format: winston.format.combine(
+    winston.format.timestamp({
+      // format: "YYYY-MM-DD HH:mm:ss",
+      format: () => Date.now() / 1000,
+    }),
+    winston.format.errors({ stack: true }),
+    winston.format.splat(),
+    winston.format.json()
+  ),
+  transports: [
+    new winston.transports.Console({
+      format: winston.format.combine(
+        // winston.format.colorize(),
+        winston.format.printf(
+          (info) => `${info.timestamp} ${info.level}: ${info.message}`
+        )
+      ),
+    }),
+  ],
+});
+
 async function main() {
+  logger.info("program started");
   const h1Pid = await getMininetPid("h1");
   console.log(`h1 pid: ${h1Pid}`);
   /**
@@ -145,6 +170,9 @@ async function main() {
     "/var/log/audit/audit.log",
   ]);
   ((p) => {
+    p.on("spawn", () => {
+      logger.info("start audit");
+    });
     let buf = "";
     p.stdout.on("data", (/** @type {Buffer} */ data) => {
       buf += data.toString();
@@ -231,6 +259,9 @@ async function main() {
     "1048576",
   ]);
   (() => {
+    conntrack_p.on("spawn", () => {
+      logger.info("start conntrack");
+    });
     let buf = "";
     conntrack_p.stdout.on("data", (/** @type {Buffer} */ data) => {
       buf += data.toString();
