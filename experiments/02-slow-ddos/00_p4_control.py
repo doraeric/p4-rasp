@@ -553,8 +553,8 @@ def setup_switch_listen(switch: str, app_exit: threading.Event) -> P4RTClient:
     @stream_client.on('digest')
     def digest_handler(packet):
         name = p4i.get_digest_name(packet.digest_id)
-        log.info('< Receive digest %s #%s len=%s',
-                 name, packet.list_id, len(packet.data))
+        # log.info('< Receive digest %s #%s len=%s',
+        #          name, packet.list_id, len(packet.data))
         if len(packet.data) == 1:
             names = p4i.get_member_names(packet.digest_id)
             members = [i.bitstring for i in packet.data[0].struct.members]
@@ -562,7 +562,7 @@ def setup_switch_listen(switch: str, app_exit: threading.Event) -> P4RTClient:
                    else ('.'.join(str(i) for i in v) if len(v) == 4
                          else ':'.join(f'{i:02x}' for i in v))
                    for k, v in zip(names, members)}
-            log.info('< %s', msg)
+            # log.info('< %s', msg)
         else:
             log.debug(packet)
         if name == 'timestamp_digest_t':
@@ -576,6 +576,8 @@ def setup_switch_listen(switch: str, app_exit: threading.Event) -> P4RTClient:
         elif name == 'fragment_t':
             handle_fragment(packet, msg, client, app_exit)
         elif name == 'http_res_t':
+            if msg['status_code'] == 4:
+                log.info('< %s', msg)
             handle_http_res(packet, msg, client)
 
     stream_client.recv_bg()
