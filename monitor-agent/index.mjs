@@ -5,6 +5,9 @@ import { promises as fs } from "fs";
 import path from "node:path";
 import winston from "winston";
 
+const SUDO_UID = parseInt(process.env.SUDO_UID || "0");
+const SUDO_GID = parseInt(process.env.SUDO_GID || "0");
+
 program
   .option(
     "-o, --output <filename>",
@@ -53,9 +56,17 @@ const logger = winston.createLogger({
 });
 
 async function main() {
+  if (process.geteuid() !== 0) {
+    console.error(
+      "Run this program with sudo, so it can clear audit rules with root after 5 minutes timeout of sudo."
+    );
+    process.exit(1);
+  }
+  process.setegid(SUDO_GID);
+  process.seteuid(SUDO_UID);
   logger.info("program started");
   const h1Pid = await getMininetPid("h1");
-  console.log(`h1 pid: ${h1Pid}`);
+  logger.info(`h1 pid: ${h1Pid}`);
   /**
    * @type {{
    *   [key: string]: 'new' | 'accepted' | 'closed'
@@ -164,12 +175,9 @@ async function main() {
 
   await clearAudit();
   await addAudit();
-  const tail_audit_p = spawn("sudo", [
-    "tail",
-    "-n0",
-    "-f",
-    "/var/log/audit/audit.log",
-  ]);
+  process.seteuid(0);
+  const tail_audit_p = spawn("tail", ["-n0", "-f", "/var/log/audit/audit.log"]);
+  process.seteuid(SUDO_UID);
   ((p) => {
     p.on("spawn", () => {
       logger.info("start audit");
@@ -243,8 +251,8 @@ async function main() {
     );
   })(tail_audit_p);
 
-  const conntrack_p = spawn("sudo", [
-    "nsenter",
+  process.seteuid(0);
+  const conntrack_p = spawn("nsenter", [
     "-a",
     "-t",
     h1Pid,
@@ -259,6 +267,7 @@ async function main() {
     "-b",
     "1048576",
   ]);
+  process.seteuid(SUDO_UID);
   (() => {
     conntrack_p.on("spawn", () => {
       logger.info("start conntrack");
@@ -335,8 +344,8 @@ main();
 function addAudit() {
   logger.info("add audit");
   return new Promise((resolve, reject) => {
-    const p = spawn("sudo", [
-      "auditctl",
+    process.seteuid(0);
+    const p = spawn("auditctl", [
       "-a",
       "always,exit",
       "-F",
@@ -352,6 +361,7 @@ function addAudit() {
       "-k",
       "socket_events",
     ]);
+    process.seteuid(SUDO_UID);
     p.on("close", (code) => {
       if (code === 0) {
         return resolve();
@@ -365,7 +375,9 @@ function addAudit() {
 function clearAudit() {
   logger.info("clear audit");
   return new Promise((resolve, reject) => {
-    const p = spawn("sudo", ["auditctl", "-D"]);
+    process.seteuid(0);
+    const p = spawn("auditctl", ["-D"]);
+    process.seteuid(SUDO_UID);
     p.on("close", (code) => {
       if (code === 0) {
         return resolve();

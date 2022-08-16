@@ -14,7 +14,7 @@ attack_time=150
 
 # read  -n 1 -p "Input:" userinput
 pushd ../../monitor-agent >/dev/null
-node index.mjs -o "$CWD/num_sockets.tsv" --timeout $monitor_time 2>/tmp/monitor-stderr.log >/tmp/monitor.log &
+sudo node index.mjs -o "$CWD/num_sockets.tsv" --timeout $monitor_time 2>/tmp/monitor-stderr.log >/tmp/monitor.log &
 popd >/dev/null
 sleep 2 # wait monitor to setup
 
