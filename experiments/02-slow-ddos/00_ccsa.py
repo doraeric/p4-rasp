@@ -45,6 +45,7 @@ class IpPairInfo:
     # the order is: short_get, short_other, long_other
     index: int
     client: P4RTClient
+    members_ip: list
     trust_counter: int = 100
     blocked: bool = False
 
@@ -55,6 +56,7 @@ class AppContext:
     ip_counter: int = 0
     ip_pair_info: dict[tuple, IpPairInfo] = field(default_factory=dict)
     conns: dict = field(default_factory=dict)
+    num_socket_use: int = 0
 
 
 _app_context = AppContext(None)
@@ -91,7 +93,7 @@ def handle_new_ip(packet, client: P4RTClient):
         return
     index = _app_context.ip_counter
     _app_context.ip_counter += 1
-    ip_pair_info[key] = IpPairInfo(index=index, client=client)
+    ip_pair_info[key] = IpPairInfo(index=index, client=client, members_ip=ips)
     # bidirectional
     for ip1, ip2 in [ips, ips[::-1]]:
         te = client.TableEntry('ingress.http_ingress.ip_pair')(
@@ -103,13 +105,35 @@ def handle_new_ip(packet, client: P4RTClient):
     log.info('> ip_pair[%s] = %s <-> %s', index, ip_str[0], ip_str[1])
 
 
+def safe_block(ip_key, reason=''):
+    info = _app_context.ip_pair_info[ip_key]
+    if info.blocked:
+        return False
+    info.blocked = True
+    ips = info.members_ip
+    acl_add_drop(info.client, *ips)
+    log.info(f'> block {reason} %s -> %s', ips[0], ips[1])
+    return True
+
+
+def safe_unblock(ip_key, reset=True, reason=''):
+    info = _app_context.ip_pair_info[ip_key]
+    if not info.blocked:
+        return False
+    ips = info.members_ip
+    acl_del(info.client, *ips)
+    if reset:
+        info.trust_counter = 100
+    info.blocked = False
+    log.info(f'> unblock {reason} %s -> %s', ips[0], ips[1])
+    return True
+
+
 def handle_fragment(
     packet, msg: dict, client: P4RTClient, app_exit: threading.Event
 ):
     members = [i.bitstring for i in packet.data[0].struct.members]
     ip_key = tuple(sorted(members[:2]))
-    _msg = msg
-    msg = msg.copy()
     for k in ['src_addr', 'dst_addr', 'src_port', 'dst_port']:
         msg.pop(k)
     for k in ['is_req_start', 'is_get', 'has_2_crlf', 'is_long']:
@@ -118,16 +142,15 @@ def handle_fragment(
     ip_pair_info.trust_counter -= 1
     if ip_pair_info.trust_counter <= 100 * 0 and not ip_pair_info.blocked:
         # block ip
-        ip_pair_info.blocked = True
-        acl_add_drop(client, *members[:2])
-        log.info('> block %s -> %s', _msg['src_addr'], _msg['dst_addr'])
-
-        def unblock():
-            acl_del(client, *members[:2])
-            ip_pair_info.trust_counter = 100
-            ip_pair_info.blocked = False
-            log.info('> unblock %s -> %s', _msg['src_addr'], _msg['dst_addr'])
-        EventTimer(300, unblock, app_exit).start()
+        do_block = safe_block(ip_key, 'long')
+        if do_block:
+            EventTimer(300, safe_unblock, app_exit, args=(ip_key,), kwargs={
+                'reason': 'long'}).start()
+    tcp_key = to_tcp_key(members[:4])
+    if _app_context.conns.get(tcp_key) is None:
+        _app_context.conns[tcp_key] = True
+        _app_context.num_socket_use += 1
+        free_socket_check(app_exit)
 
 
 def handle_http_res(packet, msg: dict, client: P4RTClient):
@@ -135,18 +158,21 @@ def handle_http_res(packet, msg: dict, client: P4RTClient):
     tcp_key = to_tcp_key(members[:4])
     if tcp_key not in _app_context.conns:
         return
-    conn = _app_context.conns[tcp_key]
-    ip_key = tuple(sorted(members[:2]))
-    ip_pair_info = _app_context.ip_pair_info[ip_key]
-    index = ip_pair_info.index
-    id2 = 0 if conn['is_get'] else 1 if not conn['is_long'] else 2
-    updates = []
-    updates.append(reg_update(index, id2, '-', 1))
-    p = client.PacketOut(b'\3%c' % len(updates) + b''.join(updates))
-    p.metadata['handler'] = '2'
-    p.send()
-    log.info('> reg_decrease index=%s, id2=%s', index, id2)
+    _app_context.num_socket_use -= 1
     del _app_context.conns[tcp_key]
+
+
+def free_socket_check(app_exit: threading.Event):
+    if (100 - _app_context.num_socket_use) / 100 < 0.2:
+        ban = False
+        for k, v in _app_context.ip_pair_info.items():
+            if v.trust_counter < 0.5*100:
+                ban = True
+                if safe_block(k, 'short'):
+                    EventTimer(60.0, safe_unblock, app_exit, args=(
+                        k, False, 'short')).start()
+        if not ban:
+            log.info('Not ban')
 
 
 def clock(pill: threading.Event):
@@ -179,8 +205,8 @@ def setup_switch_listen(switch: str, app_exit: threading.Event) -> P4RTClient:
     @stream_client.on('digest')
     def digest_handler(packet):
         name = p4i.get_digest_name(packet.digest_id)
-        log.info('< Receive digest %s #%s len=%s',
-                 name, packet.list_id, len(packet.data))
+        # log.info('< Receive digest %s #%s len=%s',
+        #          name, packet.list_id, len(packet.data))
         if len(packet.data) == 1:
             names = p4i.get_member_names(packet.digest_id)
             members = [i.bitstring for i in packet.data[0].struct.members]
@@ -188,7 +214,7 @@ def setup_switch_listen(switch: str, app_exit: threading.Event) -> P4RTClient:
                    else ('.'.join(str(i) for i in v) if len(v) == 4
                          else ':'.join(f'{i:02x}' for i in v))
                    for k, v in zip(names, members)}
-            log.info('< %s', msg)
+            # log.info('< %s', msg)
         else:
             log.debug(packet)
         if name == 'new_ip_t':
