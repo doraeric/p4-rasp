@@ -162,6 +162,7 @@ async function main() {
     }
   };
 
+  await clearAudit();
   await addAudit();
   const tail_audit_p = spawn("sudo", [
     "tail",
@@ -308,6 +309,9 @@ async function main() {
   })();
 
   const exitAll = async () => {
+    const now = Date.now() / 1000;
+    writeNumFile(num_sockets_file, now, { ...numSockets });
+    writeNumFile(stepChartPath, now, { ...numSockets });
     await clearAudit();
     conntrack_p.kill();
     process.exit();
@@ -329,6 +333,7 @@ async function main() {
 main();
 
 function addAudit() {
+  logger.info("add audit");
   return new Promise((resolve, reject) => {
     const p = spawn("sudo", [
       "auditctl",
@@ -358,6 +363,7 @@ function addAudit() {
 }
 
 function clearAudit() {
+  logger.info("clear audit");
   return new Promise((resolve, reject) => {
     const p = spawn("sudo", ["auditctl", "-D"]);
     p.on("close", (code) => {
