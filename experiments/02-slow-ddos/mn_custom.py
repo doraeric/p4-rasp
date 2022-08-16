@@ -12,7 +12,7 @@ import json
 import os
 import sys
 
-from mininet.link import Intf
+from mininet.link import Intf, TCLink
 from mininet.net import Mininet
 from mininet.topo import Topo
 
@@ -145,6 +145,6 @@ class MyTopo( Topo ):
         for link in filter(lambda i: i['basic']['is_mn_link'], net_config['links'].values()):
             ps = link['basic']['endpoints']
             hs = [mn_hosts[p['name']] if p['type'] == 'host' else mn_switches[p['name']] for p in ps]
-            self.addLink(hs[0], hs[1], ps[0]['port'], ps[1]['port'])
+            self.addLink(hs[0], hs[1], ps[0]['port'], ps[1]['port'], cls=TCLink, **link.get('mnkw', {}))
 
 topos = { topo_name: ( lambda: MyTopo() ) }

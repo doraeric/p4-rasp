@@ -34,16 +34,16 @@
   "links": {
     "device:s1/1-host:h1/0": {},
     "device:s1/2-device:s2/1": {},
-    "device:s2/2-host:h2/0": {},
-    "device:s2/3-host:h3/0": {},
-    "device:s2/4-host:h4/0": {},
-    "device:s2/5-host:h5/0": {},
-    "device:s2/6-host:h6/0": {},
-    "device:s2/7-host:h7/0": {},
-    "device:s2/8-host:h8/0": {},
-    "device:s2/9-host:h9/0": {},
-    "device:s2/10-host:h10/0": {},
-    "device:s2/11-host:h11/0": {}
+    "device:s2/2-host:h2/0": { "mnkw": { "bw": 0.8 } },
+    "device:s2/3-host:h3/0": { "mnkw": { "bw": 0.8 } },
+    "device:s2/4-host:h4/0": { "mnkw": { "bw": 0.8 } },
+    "device:s2/5-host:h5/0": { "mnkw": { "bw": 0.8 } },
+    "device:s2/6-host:h6/0": { "mnkw": { "bw": 0.8 } },
+    "device:s2/7-host:h7/0": { "mnkw": { "bw": 0.8 } },
+    "device:s2/8-host:h8/0": { "mnkw": { "bw": 0.8 } },
+    "device:s2/9-host:h9/0": { "mnkw": { "bw": 0.8 } },
+    "device:s2/10-host:h10/0": { "mnkw": { "bw": 0.8 } },
+    "device:s2/11-host:h11/0": { "mnkw": { "bw": 0.8 } }
   },
   "hosts": {
     "00:00:00:00:00:01/None": {
