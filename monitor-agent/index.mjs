@@ -14,7 +14,8 @@ program
     "path to output (csv/tsv format)",
     "num_sockets.tsv"
   )
-  .option("-t, --timeout <sec>", "Stop monitoring when timeout", "0");
+  .option("-t, --timeout <sec>", "Stop monitoring when timeout", "0")
+  .option("-a, --audit", "enable audit", false);
 
 program.parse();
 
@@ -119,6 +120,7 @@ async function main() {
     if (!sockets.hasOwnProperty(key)) {
       if (lastTimestamp < timestamp) lastTimestamp = timestamp;
       writeNumFile(stepChartPath, timestamp, { ...numSockets });
+      logger.info(`new socket ${key}`);
       sockets[key] = "new";
       numSockets["new"] += 1;
       writeNumFile(num_sockets_file, timestamp, { ...numSockets });
@@ -166,6 +168,7 @@ async function main() {
       } else if (sockets[key] === "accepted") {
         numSockets["accepted"] -= 1;
       }
+      logger.info(`close socket ${key}`);
       sockets[key] = "closed";
       numSockets["closed"] += 1;
       writeNumFile(num_sockets_file, timestamp, { ...numSockets });
@@ -173,83 +176,92 @@ async function main() {
     }
   };
 
-  await clearAudit();
-  await addAudit();
-  process.seteuid(0);
-  const tail_audit_p = spawn("tail", ["-n0", "-f", "/var/log/audit/audit.log"]);
-  process.seteuid(SUDO_UID);
-  ((p) => {
-    p.on("spawn", () => {
-      logger.info("start audit");
-    });
-    let buf = "";
-    p.stdout.on("data", (/** @type {Buffer} */ data) => {
-      buf += data.toString();
-      buf = buf.split(/\r?\n/);
-      buf.slice(0, -1).forEach((line) => {
-        p.emit("line", line);
+  if (options.audit) {
+    await clearAudit();
+    await addAudit();
+    process.seteuid(0);
+    const tail_audit_p = spawn("tail", [
+      "-n0",
+      "-f",
+      "/var/log/audit/audit.log",
+    ]);
+    process.seteuid(SUDO_UID);
+    ((p) => {
+      p.on("spawn", () => {
+        logger.info("start audit");
       });
-      buf = buf.slice(-1)[0];
-    });
-    const eventBuf = new Set();
-    p.on("line", (/** @type {string} */ line) => {
-      if (line.startsWith("type=SYSCALL") || line.startsWith("type=SOCKADDR")) {
-        const result = line.match(
-          /type=(?<type>\w+) msg=audit\((?<timestamp>[\d+\.]+):(?<event_id>\d+)\): (?<msg>.*)$/
-        );
-        if (result === null) {
-          console.log(line);
-        } else {
-          const { type, msg } = result.groups;
-          const timestamp = parseFloat(result.groups.timestamp);
-          const event_id = parseInt(result.groups.event_id);
-          p.emit(type, { timestamp, event_id, msg });
-        }
-      }
-    });
-    p.on(
-      "SYSCALL",
-      /**
-       * @param {{
-       *   timestamp: number,
-       *   event_id: number,
-       *   msg: string,
-       * }}
-       */
-      ({ timestamp, event_id, msg }) => {
-        if (msg.includes(' key="socket_events"')) {
-          eventBuf.add(event_id);
-        }
-      }
-    );
-    p.on(
-      "SOCKADDR",
-      /**
-       * @param {{
-       *   timestamp: number,
-       *   event_id: number,
-       *   msg: string,
-       * }}
-       */
-      ({ timestamp, event_id, msg }) => {
-        if (eventBuf.has(event_id)) {
-          eventBuf.delete(event_id);
-          const result = msg.match(
-            / laddr=(?<laddr>[\d\.]+)\s+lport=(?<lport>\d+)/
+      let buf = "";
+      p.stdout.on("data", (/** @type {Buffer} */ data) => {
+        buf += data.toString();
+        buf = buf.split(/\r?\n/);
+        buf.slice(0, -1).forEach((line) => {
+          p.emit("line", line);
+        });
+        buf = buf.slice(-1)[0];
+      });
+      const eventBuf = new Set();
+      p.on("line", (/** @type {string} */ line) => {
+        if (
+          line.startsWith("type=SYSCALL") ||
+          line.startsWith("type=SOCKADDR")
+        ) {
+          const result = line.match(
+            /type=(?<type>\w+) msg=audit\((?<timestamp>[\d+\.]+):(?<event_id>\d+)\): (?<msg>.*)$/
           );
           if (result === null) {
-            console.log(
-              `type=SOCKADDR msg=audit(${timestamp}:${event_id}): ${msg}`
-            );
+            console.log(line);
           } else {
-            const { laddr } = result.groups;
-            const lport = parseInt(result.groups.lport);
-            acceptSocket({ timestamp, addr: laddr, port: lport });
+            const { type, msg } = result.groups;
+            const timestamp = parseFloat(result.groups.timestamp);
+            const event_id = parseInt(result.groups.event_id);
+            p.emit(type, { timestamp, event_id, msg });
           }
         }
-      }
-    );
-  })(tail_audit_p);
+      });
+      p.on(
+        "SYSCALL",
+        /**
+         * @param {{
+         *   timestamp: number,
+         *   event_id: number,
+         *   msg: string,
+         * }}
+         */
+        ({ timestamp, event_id, msg }) => {
+          if (msg.includes(' key="socket_events"')) {
+            eventBuf.add(event_id);
+          }
+        }
+      );
+      p.on(
+        "SOCKADDR",
+        /**
+         * @param {{
+         *   timestamp: number,
+         *   event_id: number,
+         *   msg: string,
+         * }}
+         */
+        ({ timestamp, event_id, msg }) => {
+          if (eventBuf.has(event_id)) {
+            eventBuf.delete(event_id);
+            const result = msg.match(
+              / laddr=(?<laddr>[\d\.]+)\s+lport=(?<lport>\d+)/
+            );
+            if (result === null) {
+              console.log(
+                `type=SOCKADDR msg=audit(${timestamp}:${event_id}): ${msg}`
+              );
+            } else {
+              const { laddr } = result.groups;
+              const lport = parseInt(result.groups.lport);
+              acceptSocket({ timestamp, addr: laddr, port: lport });
+            }
+          }
+        }
+      );
+    })(tail_audit_p);
+  }
 
   process.seteuid(0);
   const conntrack_p = spawn("nsenter", [
@@ -319,16 +331,26 @@ async function main() {
 
   const exitAll = async () => {
     const now = Date.now() / 1000;
-    writeNumFile(num_sockets_file, now, { ...numSockets });
-    writeNumFile(stepChartPath, now, { ...numSockets });
-    await clearAudit();
+    await writeNumFile(num_sockets_file, now, { ...numSockets });
+    await writeNumFile(stepChartPath, now, { ...numSockets });
+    if (options.audit) {
+      await clearAudit();
+    }
     conntrack_p.kill();
+    const remainSockets = Object.entries(sockets).reduce((accu, [k, v]) => {
+      if (v !== "closed") {
+        accu[k] = v;
+      }
+      return accu;
+    }, {});
+    logger.info(JSON.stringify(remainSockets));
+    logger.info("process exit");
     process.exit();
   };
   let timeoutObj = null;
   if (monitorTimeout > 0) {
     timeoutObj = setTimeout(async () => {
-      console.log("Monitor timeout");
+      logger.info("Monitor timeout");
       await exitAll();
     }, monitorTimeout * 1000);
   }
