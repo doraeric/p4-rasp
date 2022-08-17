@@ -1,0 +1,144 @@
+{
+  "ports": {
+    "device:s1/3": {
+      "interfaces": [{
+        "name": "vmnet3",
+        "gw_mac": "00:50:56:00:fe:fe"
+      }],
+      "default_gateway": true
+    },
+    "device:s2/1": {
+      "default_gateway": true
+    }
+  },
+  "devices": {
+    "device:s1": {
+      "basic": {
+        "p4rt_port": 50001
+      },
+      "segmentrouting": {
+        "routerMac": "00:00:00:00:01:fe",
+        "routerIpv4": "10.0.1.254/24"
+      }
+    },
+    "device:s2": {
+      "basic": {
+        "p4rt_port": 50002
+      },
+      "segmentrouting": {
+        "routerMac": "00:00:00:00:02:fe",
+        "routerIpv4": "10.0.2.254/24"
+      }
+    }
+  },
+  "links": {
+    "device:s1/1-host:h1/0": {},
+    "device:s1/2-device:s2/1": {},
+    "device:s2/2-host:h2/0": { "mnkw": { "bw": 0.8 } },
+    "device:s2/3-host:h3/0": { "mnkw": { "bw": 0.8 } },
+    "device:s2/4-host:h4/0": { "mnkw": { "bw": 0.8 } },
+    "device:s2/5-host:h5/0": { "mnkw": { "bw": 0.8 } },
+    "device:s2/6-host:h6/0": { "mnkw": { "bw": 0.8 } },
+    "device:s2/7-host:h7/0": { "mnkw": { "bw": 0.8 } },
+    "device:s2/8-host:h8/0": { "mnkw": { "bw": 0.8 } },
+    "device:s2/9-host:h9/0": { "mnkw": { "bw": 0.8 } },
+    "device:s2/10-host:h10/0": { "mnkw": { "bw": 0.8 } },
+    "device:s2/11-host:h11/0": { "mnkw": { "bw": 0.8 } },
+    "device:s2/12-host:h12/0": { "mnkw": { "bw": 0.8 } },
+    "device:s2/13-host:h13/0": { "mnkw": { "bw": 0.8 } },
+    "device:s2/14-host:h14/0": { "mnkw": { "bw": 0.8 } },
+    "device:s2/15-host:h15/0": { "mnkw": { "bw": 0.8 } }
+  },
+  "hosts": {
+    "00:00:00:00:00:01/None": {
+      "basic": {
+        "name": "h1",
+        "ips": [ "10.0.1.1/24" ]
+      }
+    },
+    "00:00:00:00:00:02/None": {
+      "basic": {
+        "name": "h2",
+        "ips": [ "10.0.2.2/24" ]
+      }
+    },
+    "00:00:00:00:00:03/None": {
+      "basic": {
+        "name": "h3",
+        "ips": [ "10.0.2.3/24" ]
+      }
+    },
+    "00:00:00:00:00:04/None": {
+      "basic": {
+        "name": "h4",
+        "ips": [ "10.0.2.4/24" ]
+      }
+    },
+    "00:00:00:00:00:05/None": {
+      "basic": {
+        "name": "h5",
+        "ips": [ "10.0.2.5/24" ]
+      }
+    },
+    "00:00:00:00:00:06/None": {
+      "basic": {
+        "name": "h6",
+        "ips": [ "10.0.2.6/24" ]
+      }
+    },
+    "00:00:00:00:00:07/None": {
+      "basic": {
+        "name": "h7",
+        "ips": [ "10.0.2.7/24" ]
+      }
+    },
+    "00:00:00:00:00:08/None": {
+      "basic": {
+        "name": "h8",
+        "ips": [ "10.0.2.8/24" ]
+      }
+    },
+    "00:00:00:00:00:09/None": {
+      "basic": {
+        "name": "h9",
+        "ips": [ "10.0.2.9/24" ]
+      }
+    },
+    "00:00:00:00:00:0a/None": {
+      "basic": {
+        "name": "h10",
+        "ips": [ "10.0.2.10/24" ]
+      }
+    },
+    "00:00:00:00:00:0b/None": {
+      "basic": {
+        "name": "h11",
+        "ips": [ "10.0.2.11/24" ]
+      }
+    },
+    "00:00:00:00:00:0c/None": {
+      "basic": {
+        "name": "h12",
+        "ips": [ "10.0.2.12/24" ]
+      }
+    },
+    "00:00:00:00:00:0d/None": {
+      "basic": {
+        "name": "h13",
+        "ips": [ "10.0.2.13/24" ]
+      }
+    },
+    "00:00:00:00:00:0e/None": {
+      "basic": {
+        "name": "h14",
+        "ips": [ "10.0.2.14/24" ]
+      }
+    },
+    "00:00:00:00:00:0f/None": {
+      "basic": {
+        "name": "h15",
+        "ips": [ "10.0.2.15/24" ]
+      }
+    }
+  }
+}

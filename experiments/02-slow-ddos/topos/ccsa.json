@@ -79,16 +79,16 @@
     "device:s4/1-device:s254/4": {},
     "device:s5/1-device:s254/5": {},
     "device:s1/2-host:h1/0": {},
-    "device:s2/2-host:h2/0": {},
-    "device:s2/3-host:h3/0": {},
-    "device:s2/4-host:h4/0": {},
-    "device:s3/2-host:h5/0": {},
-    "device:s3/3-host:h8/0": {},
-    "device:s3/4-host:h11/0": {},
-    "device:s4/2-host:h6/0": {},
-    "device:s4/3-host:h9/0": {},
-    "device:s5/2-host:h7/0": {},
-    "device:s5/3-host:h10/0": {}
+    "device:s2/2-host:h2/0": { "mnkw": { "bw": 0.8 } },
+    "device:s2/3-host:h3/0": { "mnkw": { "bw": 0.8 } },
+    "device:s2/4-host:h4/0": { "mnkw": { "bw": 0.8 } },
+    "device:s3/2-host:h5/0": { "mnkw": { "bw": 0.8 } },
+    "device:s3/3-host:h8/0": { "mnkw": { "bw": 0.8 } },
+    "device:s3/4-host:h11/0": { "mnkw": { "bw": 0.8 } },
+    "device:s4/2-host:h6/0": { "mnkw": { "bw": 0.8 } },
+    "device:s4/3-host:h9/0": { "mnkw": { "bw": 0.8 } },
+    "device:s5/2-host:h7/0": { "mnkw": { "bw": 0.8 } },
+    "device:s5/3-host:h10/0": { "mnkw": { "bw": 0.8 } }
   },
   "hosts": {
     "00:00:00:00:00:01/None": {
