@@ -111,6 +111,10 @@ def build(self):
     h1 = self.nameToNode['h1']
     setup_old_apache(h1)
     setup_backend(h1)
+    # https://arthurchiao.art/blog/conntrack-design-and-implementation-zh/#%E8%A7%A3%E5%86%B3%E6%96%B9%E5%BC%8F
+    # SYN, SYN+ACK, ACK, blocked -> established not close
+    # socket will be closed in a strange timeout, better to fix manually
+    h1.cmd('sysctl -w net.netfilter.nf_conntrack_tcp_timeout_established=63')
     h1.cmd('echo "ServerName 127.0.0.1" >> /etc/apache2/apache2.conf')
     h1.cmd('a2enmod proxy')
     h1.cmd('a2enmod proxy_http')
