@@ -576,7 +576,7 @@ def setup_switch_listen(switch: str, app_exit: threading.Event) -> P4RTClient:
         elif name == 'fragment_t':
             handle_fragment(packet, msg, client, app_exit)
         elif name == 'http_res_t':
-            if msg['status_code'] == 4:
+            if msg['status_code'] == 4 or msg['status_code'] == 5:
                 log.info('< %s', msg)
             handle_http_res(packet, msg, client)
 

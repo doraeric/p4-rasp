@@ -105,18 +105,18 @@ def handle_new_ip(packet, client: P4RTClient):
     log.info('> ip_pair[%s] = %s <-> %s', index, ip_str[0], ip_str[1])
 
 
-def safe_block(ip_key, reason=''):
+def safe_block(ip_key, desc=''):
     info = _app_context.ip_pair_info[ip_key]
     if info.blocked:
         return False
     info.blocked = True
     ips = info.members_ip
     acl_add_drop(info.client, *ips)
-    log.info(f'> block {reason} %s -> %s', ips[0], ips[1])
+    log.info('> block %s %s -> %s', desc, ips[0], ips[1])
     return True
 
 
-def safe_unblock(ip_key, reset=True, reason=''):
+def safe_unblock(ip_key, reset=True, desc=''):
     info = _app_context.ip_pair_info[ip_key]
     if not info.blocked:
         return False
@@ -125,7 +125,12 @@ def safe_unblock(ip_key, reset=True, reason=''):
     if reset:
         info.trust_counter = 100
     info.blocked = False
-    log.info(f'> unblock {reason} %s -> %s', ips[0], ips[1])
+    if desc == 'short':
+        log.info(
+            '> unblock %s %s -> %s, credit=%s',
+            desc, ips[0], ips[1], info.trust_counter)
+    else:
+        log.info('> unblock %s %s -> %s', desc, ips[0], ips[1])
     return True
 
 
@@ -145,7 +150,7 @@ def handle_fragment(
         do_block = safe_block(ip_key, 'long')
         if do_block:
             EventTimer(300, safe_unblock, app_exit, args=(ip_key,), kwargs={
-                'reason': 'long'}).start()
+                'desc': 'long'}).start()
     tcp_key = to_tcp_key(members[:4])
     if _app_context.conns.get(tcp_key) is None:
         _app_context.conns[tcp_key] = True
@@ -222,6 +227,8 @@ def setup_switch_listen(switch: str, app_exit: threading.Event) -> P4RTClient:
         elif name == 'fragment_t':
             handle_fragment(packet, msg, client, app_exit)
         elif name == 'http_res_t':
+            if msg['status_code'] == 4 or msg['status_code'] == 5:
+                log.info('< %s', msg)
             handle_http_res(packet, msg, client)
 
     stream_client.recv_bg()
