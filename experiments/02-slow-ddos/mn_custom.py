@@ -59,8 +59,12 @@ def setup_backend(h):
     h.cmd('mkdir -p /var/log/padjs')
     h.cmd('mkdir -p /var/log/json-server')
     h.cmd('pad.js --servedir=/opt/pad.js --timeout=-1 >/var/log/padjs/access.log 2>/var/log/padjs/error.log &')
-    h.cmd("""echo '{"gps-locations":[{"id": 1, "lat": 0.1, "lng": 0.1}]}' > /opt/db.json""")
-    h.cmd('json-server --watch /opt/db.json >/var/log/json-server/access.log 2>/var/log/json-server/error.log &')
+    # example gps data: https://gpslogger.app/#customurl
+    data = ('{"gps-locations":[{"id": 1, "lat": 0.1, "lng": 0.1, "device_id": '
+            '"ABCDEF", "battery": 99.8, "timestamp": 1660792443.696}]}')
+    h.cmd("echo '{}' > /opt/db.json".format(data))
+    # `--watch` causes server to restart and listen on the same port
+    h.cmd('json-server /opt/db.json >/var/log/json-server/access.log 2>/var/log/json-server/error.log &')
 
 original_build = Mininet.build
 def build(self):
