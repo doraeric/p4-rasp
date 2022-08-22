@@ -112,7 +112,7 @@ def safe_block(ip_key, desc=''):
     info.blocked = True
     ips = info.members_ip
     acl_add_drop(info.client, *ips)
-    log.info('> block %s %s -> %s', desc, ips[0], ips[1])
+    log.info('> block %s %s.%s.%s.%s -> %s.%s.%s.%s', desc, *ips[0], *ips[1])
     return True
 
 
@@ -127,8 +127,8 @@ def safe_unblock(ip_key, reset=True, desc=''):
     info.blocked = False
     if desc == 'short':
         log.info(
-            '> unblock %s %s -> %s, credit=%s',
-            desc, ips[0], ips[1], info.trust_counter)
+            '> unblock %s %s.%s.%s.%s -> %s.%s.%s.%s, credit=%s',
+            desc, *ips[0], *ips[1], info.trust_counter)
     else:
         log.info('> unblock %s %s -> %s', desc, ips[0], ips[1])
     return True
