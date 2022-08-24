@@ -27,7 +27,7 @@ P4BIN = os.getenv('P4BIN', '../../p4/build-ccsa/bmv2.json')
 os.environ['P4INFO'] = P4INFO
 os.environ['P4BIN'] = P4BIN
 
-p4_control = importlib.import_module('00_p4_control')
+p4_control = importlib.import_module('10_p4_control')
 setup_all_switches = p4_control.setup_all_switches
 setup_one_switch = p4_control.setup_one_switch
 to_tcp_key = p4_control.to_tcp_key
