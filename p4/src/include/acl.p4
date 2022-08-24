@@ -61,6 +61,7 @@ control Acl(
             hdr.ipv4.src_addr       : ternary @name("ipv4_src");
             hdr.ipv4.dst_addr       : ternary @name("ipv4_dst");
             hdr.ipv4.protocol       : ternary @name("ip_proto");
+            hdr.tcp.ctrl            : ternary @name("tcp_flag");
             meta.l4_src_port        : ternary @name("l4_sport");
             meta.l4_dst_port        : ternary @name("l4_dport");
         }
