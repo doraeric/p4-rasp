@@ -16,6 +16,7 @@ import IPython
 from gen_full_netcfg import set_default_net_config
 from utils import p4sh_helper
 from utils import protocol
+from utils.entries import drop_syn
 from utils.p4sh_helper import P4RTClient
 from utils.threading import EventTimer, EventThread
 
@@ -48,6 +49,8 @@ class IpPairInfo:
     members_ip: list
     trust_counter: int = 100
     blocked: bool = False
+    n_conns: int = 0
+    drop_syn: bool = False
 
 
 @dataclass
@@ -57,6 +60,7 @@ class AppContext:
     ip_pair_info: dict[tuple, IpPairInfo] = field(default_factory=dict)
     conns: dict = field(default_factory=dict)
     num_socket_use: int = 0
+    max_server_conn: int = 150
 
 
 _app_context = AppContext(None)
@@ -156,6 +160,16 @@ def handle_fragment(
         _app_context.conns[tcp_key] = True
         _app_context.num_socket_use += 1
         free_socket_check(app_exit)
+        ip_pair_info.n_conns += 1
+        _app = _app_context
+        if (_app.ip_counter > 0 and ip_pair_info.n_conns >=
+                _app.max_server_conn // _app.ip_counter and
+                not ip_pair_info.drop_syn):
+            ip_pair_info.drop_syn = True
+            drop_syn(client, *members[:2]).insert()
+            log.info(
+                'ins drop syn: %s.%s.%s.%s -> %s.%s.%s.%s',
+                *members[0], *members[1])
 
 
 def handle_http_res(packet, msg: dict, client: P4RTClient):
@@ -165,6 +179,17 @@ def handle_http_res(packet, msg: dict, client: P4RTClient):
         return
     _app_context.num_socket_use -= 1
     del _app_context.conns[tcp_key]
+    ip_key = tuple(sorted(members[:2]))
+    pair = _app_context.ip_pair_info[ip_key]
+    pair.n_conns -= 1
+    _app = _app_context
+    if (pair.drop_syn and _app.ip_counter > 0 and not pair.n_conns >=
+            _app.max_server_conn // _app.ip_counter):
+        pair.drop_syn = False
+        drop_syn(client, members[1], members[0]).delete()
+        log.info(
+            'del drop syn: %s.%s.%s.%s -> %s.%s.%s.%s',
+            *members[1], *members[0])
 
 
 def free_socket_check(app_exit: threading.Event):
