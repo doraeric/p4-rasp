@@ -16,7 +16,7 @@ from p4runtime_sh import bytes_utils
 import p4runtime_sh.shell as sh
 from p4runtime_sh.shell import P4Objects
 from p4runtime_sh.context import P4Type
-from p4runtime_sh.p4runtime import P4RuntimeClient
+from p4runtime_sh.p4runtime import P4RuntimeClient, parse_p4runtime_error
 
 from utils.threading import OrEvent
 
@@ -62,6 +62,17 @@ class P4RTClient(sh.P4RuntimeClient):
             update = self.p4i.DigestEntry(name).as_update()
             self.write_update(update)
             log.info('Enable digest: %s', name)
+
+    def print_entries(self, name=None):
+        if name is None:
+            for name in self.p4i.preamble_names['Table'].values():
+                self.TableEntry(name).read(lambda te: print(te))
+        else:
+            self.TableEntry(name).read(lambda te: print(te))
+
+    @property
+    def table_names(self):
+        return list(self.p4i.preamble_names['Table'].values())
 
 
 class P4Info:
@@ -284,12 +295,59 @@ def _entry_write(self, type_):
     self.client.write_update(update)
 
 
+def _entry_read(self, function: Callable = None):
+    self._update_msg()
+    self._validate_msg()
+    entity = p4runtime_pb2.Entity()
+    getattr(entity, self._entity_type.name).CopyFrom(self._entry)
+
+    iterator = self.client.read_one(entity)
+
+    class _EntryIterator:
+        def __init__(self, entity, it):
+            self._entity = entity
+            self._it = it
+            self._entities_it = None
+
+        def __iter__(self):
+            return self
+
+        @parse_p4runtime_error
+        def __next__(self):
+            if self._entities_it is None:
+                rep = next(self._it)
+                self._entities_it = iter(rep.entities)
+            try:
+                entity = next(self._entities_it)
+            except StopIteration:
+                self._entities_it = None
+                return next(self)
+
+            if isinstance(self._entity, sh._P4EntityBase):
+                e = type(self._entity)(self._entity.name)
+            else:
+                e = type(self._entity)()
+            msg = getattr(entity, self._entity._entity_type.name)
+            e._from_msg(msg)
+            # neither of these should be needed
+            # e._update_msg()
+            # e._entry.CopyFrom(msg)
+            return e
+
+    if function is None:
+        return _EntryIterator(self, iterator)
+    else:
+        for x in _EntryIterator(self, iterator):
+            function(x)
+
+
 class TableEntry(sh.TableEntry):
     def __init__(self, table_name=None, client=None):
         super().__init__(table_name)
         self.match = MatchKeyBin(table_name, self._info.match_fields)
         self.client = client
         self._write = partial(_entry_write, self)
+        self.read = partial(_entry_read, self)
 
     def __call__(self, **kwargs):
         for name, value in kwargs.items():
