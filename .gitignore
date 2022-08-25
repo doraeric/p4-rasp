@@ -4,6 +4,8 @@ log/
 log-*/
 *.tsv
 *.csv
+*.pcap
+*.pcapng
 
 # Java
 # Compiled class file
