@@ -10,6 +10,7 @@ for i in {1..11}; do
     mn_host_pid[$i]=`pgrep -f "is mininet:h$i\b"`
 done
 
+defense=$1
 monitor_time=420
 attack_time=180
 
@@ -18,6 +19,13 @@ pushd ../../monitor-agent >/dev/null
 sudo node index.mjs -o "$CWD/num_sockets.tsv" --timeout $monitor_time 2>/tmp/monitor-stderr.log >/tmp/monitor.log &
 popd >/dev/null
 sleep 2 # wait monitor to setup
+
+# SHDA
+if [[ "$defense" == "shda" ]]; then
+    echo setup SHDA agent
+    sudo nsenter -a -t ${mn_host_pid[1]} /bin/bash -l -c \
+        "python3.7 /cwd/30-shda-agent.py -i h1-eth0 --aggressive-close -t $monitor_time" > /tmp/shda-agent.log 2>&1 &
+fi
 
 # client x6
 for i in {2..7}; do
