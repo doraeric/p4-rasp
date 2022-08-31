@@ -64,6 +64,7 @@ class AppContext:
 
 
 _app_context = AppContext(None)
+_app = _app_context
 p4_control._app_context = _app_context
 
 
@@ -193,7 +194,7 @@ def handle_http_res(packet, msg: dict, client: P4RTClient):
 
 
 def free_socket_check(app_exit: threading.Event):
-    if (100 - _app_context.num_socket_use) / 100 < 0.2:
+    if (_app.max_server_conn-_app.num_socket_use) / _app.max_server_conn < 0.2:
         ban = False
         for k, v in _app_context.ip_pair_info.items():
             if v.trust_counter < 0.5*100:
