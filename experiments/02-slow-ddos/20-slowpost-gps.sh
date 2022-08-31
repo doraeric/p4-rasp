@@ -27,7 +27,7 @@ done
 
 # attacker x4
 for i in {8..11}; do
-    sudo nsenter -a -t ${mn_host_pid[$i]} slowhttptest -u http://10.0.1.1 -B -c 40 -r 1 -l $attack_time -i 1 >/tmp/slow-h${i}.log &
+    sudo nsenter -a -t ${mn_host_pid[$i]} slowhttptest -u http://10.0.1.1 -B -c 50 -r 2 -l $attack_time -i 1 >/tmp/slow-h${i}.log &
 done
 
 # https://stackoverflow.com/questions/356100/
