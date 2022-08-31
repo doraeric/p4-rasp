@@ -7,8 +7,9 @@ if [[ $# -lt 1 ]]; then
     exit -1
 fi
 
+date +"%T.%3N"
 # register ip
-curl http://10.0.1.1 > /dev/null
+curl -s http://10.0.1.1 > /dev/null
 sleep .1
 
 mkdir -p /opt/pad.js/$hostname
@@ -19,4 +20,5 @@ for i in {01..10}; do
     else
         echo "#$i $resp"
     fi
+    date +"%T.%3N"
 done
