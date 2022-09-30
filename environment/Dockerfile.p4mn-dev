@@ -1,0 +1,62 @@
+FROM opennetworking/p4mn:latest
+
+RUN install_packages nmap netcat-openbsd curl wget python3 python3-pip
+RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash -
+RUN curl -sL https://dl.yarnpkg.com/debian/pubkey.gpg | gpg --dearmor | tee /usr/share/keyrings/yarnkey.gpg >/dev/null
+RUN echo "deb [signed-by=/usr/share/keyrings/yarnkey.gpg] https://dl.yarnpkg.com/debian stable main" | tee /etc/apt/sources.list.d/yarn.list
+
+# python build deps
+RUN apt-get update && apt-get install -y make build-essential libssl-dev zlib1g-dev \
+    libbz2-dev libreadline-dev libsqlite3-dev wget curl llvm \
+    libncursesw5-dev xz-utils tk-dev libxml2-dev libxmlsec1-dev libffi-dev liblzma-dev \
+    && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
+
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    nodejs yarn \
+    slowhttptest \
+    apache2 \
+    less \
+    vim \
+    auditd \
+    strace \
+    tcpreplay \
+    tshark \
+    trickle \
+    iptables \
+    netsniff-ng \
+    conntrack \
+    htop \
+    tree \
+    bsdtar \
+    make \
+    file \
+    man \
+    elinks \
+    jq \
+    jo \
+    bc \
+    rsync \
+    zsh \
+    && rm -rf /var/lib/apt/lists/*
+RUN npm install -g npm
+RUN npm install -g http-server
+RUN npm install -g json-server
+RUN npm install -g pad.js
+
+# build python3.6+, pyshark use f-string
+RUN sh -c 'curl https://pyenv.run | bash'
+RUN /root/.pyenv/bin/pyenv install 3.6.15
+RUN /root/.pyenv/bin/pyenv install 3.7.12
+RUN ln -s /root/.pyenv/versions/3.6.15/bin/python3.6 /usr/bin/python3.6
+RUN ln -s /root/.pyenv/versions/3.7.12/bin/python3.7 /usr/bin/python3.7
+RUN python3.7 -m pip install -U pip requests pyshark
+
+COPY bmv2.py /root/bmv2.py
+# COPY dotfiles /dotfiles
+# RUN rsync -auz /dotfiles/ /root/
+# RUN rm -r /dotfiles
+
+# RUN a2dismod reqtimeout
+
+COPY . /opt
