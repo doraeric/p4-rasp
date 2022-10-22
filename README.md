@@ -29,7 +29,7 @@ Show logging message in the same terminal:
 
 ```sh
 cd experiments/02-slow-ddos
-./10_p4_control.py --topo topos/ccsa-2s.json all
+./10_p4_control.py --topo topos/ccsa-2s.json each -s 2 -l -a
 ```
 
 To show log in a separate terminal, use the following commands:
@@ -39,7 +39,7 @@ To show log in a separate terminal, use the following commands:
 nc -klvp 3000
 
 # window 2
-./10_p4_control.py --log tcp:localhost:3000 --topo topos/ccsa-2s.json all
+./10_p4_control.py --log tcp:localhost:3000 --topo topos/ccsa-2s.json each -s 2 -l -a
 ```
 
 ## Start attack simulation
