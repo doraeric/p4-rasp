@@ -4,6 +4,7 @@
 
 - linux environment for the scripts
 - [docker](https://www.docker.com/) for compiling P4 and data plane
+- [p4c](https://github.com/doraeric/p4c-docker) docker image for compiling P4
 - [p4runtime-shell](https://github.com/p4lang/p4runtime-shell) for control plane
 - nc: optional for logging, `apt install netcat-openbsd`
 
