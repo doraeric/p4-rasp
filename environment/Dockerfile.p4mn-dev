@@ -1,5 +1,11 @@
 FROM opennetworking/p4mn:latest
 
+# set apt source, remove these lines once opennetworking/p4mn stops using debian 9
+# https://unix.stackexchange.com/a/744408
+# https://unix.stackexchange.com/a/743863
+RUN sh -c "echo 'deb http://archive.debian.org/debian stretch main' > /etc/apt/sources.list"
+RUN sh -c "echo 'deb http://archive.debian.org/debian-security stretch/updates main' >> /etc/apt/sources.list"
+
 RUN install_packages nmap netcat-openbsd curl wget python3 python3-pip
 RUN curl -fsSL https://deb.nodesource.com/setup_16.x | bash -
 RUN curl -sL https://dl.yarnpkg.com/debian/pubkey.gpg | gpg --dearmor | tee /usr/share/keyrings/yarnkey.gpg >/dev/null
